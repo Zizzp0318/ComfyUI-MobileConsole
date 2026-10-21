@@ -114,6 +114,21 @@ api_workflows/         工作流，平铺存放
 
 `api_workflows` 是**平铺**的，不用建子文件夹。分类和排序都写在各自的 `.ui.json` 里，跟磁盘位置无关。删掉 `.ui.json` 会回到自动识别状态。
 
+## convert.py（可选，不参与服务运行）
+
+ComfyUI 界面版的工作流（带节点坐标、分组、连线样式）不能直接提交给 API，
+`convert.py` 用来把界面版批量转成 API 格式。
+
+它**额外依赖 Playwright**，服务本身不需要：
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+平时用 ComfyUI 自带的「导出(API)」就够了，这个脚本是给需要批量转换的场景准备的。
+不用它的话，删掉也不影响任何功能。
+
 ## 实现说明
 
 整个服务就一个 `server.py`，几个关键点：
