@@ -61,13 +61,20 @@ python server.py
 
 浏览器会自动打开管理页，没打开就手动访问 `http://127.0.0.1:8899/admin`。
 
-### 方式二：用 exe（不需要 Python）
+### 方式二：下载 exe（不需要 Python）
+
+到 [Releases](https://github.com/Zizzp0318/ComfyUI-MobileConsole/releases) 下载最新的 `*-exe.zip`，解压双击即可。
+
+首次运行会在 exe 旁边自动生成 `config.json` 和 `api_workflows/`。
+
+想自己打包的话：
 
 ```bash
+pip install pyinstaller
 pyinstaller --onefile --console --name "ComfyUI手机控制台" --add-data "web;web" server.py
 ```
 
-产物在 `dist/`，双击即可。首次运行会在 exe 旁边自动生成 `config.json` 和 `api_workflows/`。
+产物在 `dist/`。
 
 ## 配置工作流
 
