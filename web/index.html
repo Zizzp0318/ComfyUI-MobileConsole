@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0b0e">
+<title>ComfyUI 控制台</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  :root{
+    --bg:#0b0b0e; --card:#17171c; --card2:#1e1e25; --line:#2a2a33;
+    --text:#f2f2f7; --muted:#8a8a95; --accent:#6d8cff; --ok:#3ecf8e; --warn:#ffb44d;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:16px;-webkit-font-smoothing:antialiased}
+  body{padding:env(safe-area-inset-top) 0 0}
+  header{position:sticky;top:0;z-index:20;background:rgba(11,11,14,.92);
+    border-bottom:1px solid var(--line);
+    padding:12px 16px;display:flex;align-items:center;gap:10px;min-height:52px}
+  header h1{font-size:17px;font-weight:600;margin:0;flex:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .back{background:none;border:0;color:var(--accent);font-size:16px;padding:6px 2px;
+    margin-left:-2px;cursor:pointer}
+  main{padding:12px 12px calc(132px + env(safe-area-inset-bottom))}
+  #out{scroll-margin-top:64px}
+  .grp{font-size:12px;color:var(--muted);margin:16px 6px 8px;letter-spacing:.04em}
+  .grp:first-child{margin-top:4px}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:15px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer}
+  .item:active{background:var(--card2)}
+  .item .nm{flex:1;font-size:15px;line-height:1.35;word-break:break-all}
+  .item .ar{color:var(--muted);font-size:18px;flex:none}
+  .fld{margin-bottom:14px}
+  .fld label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
+  textarea,input[type=text],input[type=number],select{
+    width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    color:var(--text);font-size:16px;padding:12px;font-family:inherit;outline:none}
+  textarea{min-height:96px;resize:vertical;line-height:1.5}
+  textarea:focus,input:focus,select:focus{border-color:var(--accent)}
+  select{background-image:none;padding-right:34px;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238a8a95' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center}
+  .row{display:flex;gap:10px}
+  .row>*{flex:1;min-width:0}
+  .pick{border:1px dashed var(--line);border-radius:12px;padding:14px;text-align:center;
+    color:var(--muted);font-size:14px;background:var(--card);position:relative;overflow:hidden}
+  .pick img{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px}
+  .pick input{position:absolute;inset:0;opacity:0;font-size:0}
+  details{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
+  summary{color:var(--muted);font-size:14px;cursor:pointer;list-style:none;padding:4px 0}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  details[open] summary::before{content:"▾ "}
+  .sw{display:flex;align-items:center;justify-content:space-between;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .sw input{width:22px;height:22px;accent-color:var(--accent)}
+  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:30;
+    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(11,11,14,.96);border-top:1px solid var(--line);
+    transition:transform .18s ease}
+  body.kb .runbar{transform:translateY(130%)}
+  .runstat{display:none;font-size:12px;color:var(--muted);text-align:center;
+    margin:0 0 7px;min-height:15px;line-height:15px}
+  .runstat.on{display:block}
+  .runstat b{color:var(--text);font-weight:500}
+  .btn{width:100%;border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:600;
+    color:#fff;background:var(--accent);cursor:pointer}
+  .btn:disabled{opacity:.45}
+  .btn.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
+  .res{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  .res img,.res video{width:100%;height:auto;max-height:calc(100dvh - 230px);
+    object-fit:contain;border-radius:12px;display:block;background:var(--card)}
+  .stat{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:14px 2px}
+  .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:sp .8s linear infinite;flex:none}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .tip{color:var(--muted);font-size:12px;text-align:center;margin:10px 0 0}
+  .err{background:#2a1416;border:1px solid #5b2429;color:#ff9a9a;border-radius:12px;
+    padding:12px;font-size:13px;line-height:1.5;margin-top:12px;white-space:pre-wrap;word-break:break-all}
+  .empty{color:var(--muted);text-align:center;padding:60px 20px;font-size:14px;line-height:1.7}
+  .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#2b2b34;
+    color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;opacity:0;
+    transition:opacity .2s;pointer-events:none;z-index:50;max-width:80%}
+  .toast.show{opacity:1}
+  .viewer{position:fixed;inset:0;height:100dvh;background:#000;z-index:100;display:none;
+    align-items:center;justify-content:center;padding:0}
+  .viewer.on{display:flex}
+  .viewer img,.viewer video{max-width:100vw;max-height:100dvh;width:auto;height:auto;
+    object-fit:contain;border-radius:0}
+  .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px;
+    color:#fff;font-size:15px;background:rgba(255,255,255,.16);border:0;border-radius:18px;
+    padding:8px 16px}
+  .res img{cursor:zoom-in}
+</style>
+</head>
+<body>
+<header>
+  <button class="back" id="back" style="display:none">返回</button>
+  <h1 id="title">ComfyUI 控制台</h1>
+  <span class="dot" id="dot"></span>
+</header>
+<main id="app"><div class="empty">加载中…</div></main>
+<div class="viewer" id="viewer"><button class="close" id="vclose">关闭</button><img id="vimg" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const app = $('#app');
+let state = { list: [], cur: null, values: {}, polling: null };
+
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function api(path, opt){
+  return fetch(path, opt).then(async r => {
+    const txt = await r.text();
+    let d; try { d = JSON.parse(txt); } catch(e){ throw new Error(txt.slice(0,300) || ('HTTP '+r.status)); }
+    if(!r.ok) throw new Error(d.error || ('HTTP '+r.status));
+    return d;
+  });
+}
+
+async function health(){
+  try { await api('/api/health'); $('#dot').classList.add('on'); }
+  catch(e){ $('#dot').classList.remove('on'); }
+}
+
+async function showList(){
+  location.hash = '';
+  $('#back').style.display = 'none';
+  $('#title').textContent = '选择工作流';
+  stopPoll();
+  try {
+    const d = await api('/api/workflows');
+    if(!d.items.length){ app.innerHTML = '<div class="empty">还没有 API 格式的工作流<br>把导出的 json 放进 api_workflows 目录</div>'; return; }
+    const groups = {};
+    d.items.forEach(it => (groups[it.category] = groups[it.category] || []).push(it));
+    let h = '';
+    for(const cat of Object.keys(groups)){
+      if(cat) h += `<div class="grp">${esc(cat)}</div>`;
+      for(const it of groups[cat]){
+        h += `<div class="item" data-id="${esc(it.id)}"><div class="nm">${esc(it.name)}</div><div class="ar">›</div></div>`;
+      }
+    }
+    app.innerHTML = h;
+    app.querySelectorAll('.item').forEach(el => {
+      el.onclick = () => openWorkflow(el.dataset.id);
+    });
+  } catch(e){
+    app.innerHTML = `<div class="empty">连不上控制台服务<br><span style="color:#ff9a9a">${esc(e.message)}</span></div>`;
+  }
+}
+
+async function openWorkflow(id){
+  stopPoll();
+  $('#title').textContent = '加载中…';
+  app.innerHTML = '<div class="empty">读取工作流参数…</div>';
+  try{
+    const d = await api('/api/workflow/' + encodeURIComponent(id));
+    state.cur = d; state.values = {};
+    const name = id.split('/').pop().replace('.api.json','');
+    $('#title').textContent = name;
+    $('#back').style.display = 'block';
+    renderForm();
+    location.hash = 'wf';
+    localStorage.setItem('lastWf', id);
+  } catch(e){
+    app.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+}
+
+function fieldHtml(p){
+  const k = esc(p.key);
+  let inner = '';
+  if(p.kind === 'image'){
+    inner = `<div class="pick" data-pick="${k}">
+        <div class="ph">点击选择图片</div>
+        <input type="file" accept="image/*" data-img="${k}">
+      </div>`;
+  } else if(p.kind === 'select'){
+    const opts = (p.choices||[]).map(c => `<option value="${esc(c)}"${String(c)===String(p.value)?' selected':''}>${esc(c)}</option>`).join('');
+    inner = `<select data-v="${k}">${opts}</select>`;
+  } else if(p.kind === 'toggle'){
+    inner = `<div class="sw"><span style="font-size:14px;color:var(--muted)">${esc(p.label)}</span>
+      <input type="checkbox" data-v="${k}"${p.value?' checked':''}></div>`;
+    return `<div class="fld" data-fld="${k}">${inner}</div>`;
+  } else if(p.kind === 'number'){
+    inner = `<input type="number" inputmode="decimal" data-v="${k}" value="${esc(p.value)}" step="any">`;
+  } else {
+    const isPrompt = p.group === 'prompt' || p.multiline;
+    inner = isPrompt
+      ? `<textarea data-v="${k}" placeholder="在这里输入提示词…">${esc(p.value)}</textarea>`
+      : `<input type="text" data-v="${k}" value="${esc(p.value)}">`;
+  }
+  return `<div class="fld" data-fld="${k}"><label>${esc(p.label)}</label>${inner}</div>`;
+}
+
+function renderForm(){
+  const d = state.cur;
+  let h = '';
+  for(const p of d.params.primary) h += fieldHtml(p);
+  if(d.params.advanced.length){
+    h += '<details><summary>高级参数（' + d.params.advanced.length + '）</summary>';
+    for(const p of d.params.advanced) h += fieldHtml(p);
+    h += '</details>';
+  }
+  h += `<div class="runbar"><div class="runstat" id="runstat"></div>
+        <button class="btn" id="run">运行</button></div>
+        <div id="out"></div>`;
+  app.innerHTML = h;
+
+  app.querySelectorAll('[data-v]').forEach(el=>{
+    const k = el.dataset.v;
+    const sync = ()=>{
+      state.values[k] = el.type === 'checkbox' ? el.checked : el.value;
+    };
+    sync();
+    el.addEventListener('input', sync);
+    el.addEventListener('change', sync);
+    if(el.tagName === 'TEXTAREA'){
+      const fit = ()=>{ el.style.height='auto'; el.style.height = Math.min(el.scrollHeight, 360)+'px'; };
+      el.addEventListener('input', fit); setTimeout(fit, 30);
+    }
+  });
+
+  app.querySelectorAll('[data-img]').forEach(inp=>{
+    inp.addEventListener('change', async ()=>{
+      const f = inp.files[0]; if(!f) return;
+      const k = inp.dataset.img;
+      const box = app.querySelector(`[data-pick="${k}"]`);
+      const ph = box.querySelector('.ph');
+      if(ph) ph.textContent = '上传中…';
+      try{
+        const r = await fetch('/api/upload', {
+          method:'POST', headers:{'X-Filename': encodeURIComponent(f.name)}, body: f
+        });
+        const d = await r.json();
+        if(!r.ok) throw new Error(d.error || '上传失败');
+        state.values[k] = d.name;
+        let img = box.querySelector('img.preview');
+        if(!img){
+          img = document.createElement('img');
+          img.className = 'preview';
+          box.insertBefore(img, box.firstChild);
+        }
+        img.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
+        if(ph) ph.textContent = '点击可更换图片';
+        toast('图片已上传');
+      }catch(e){
+        if(ph) ph.textContent = '上传失败，点击重试';
+        toast(e.message);
+      }
+      inp.value = '';
+    });
+  });
+
+  $('#run').onclick = run;
+  window.scrollTo({top:0});
+}
+
+async function run(){
+  const btn = $('#run');
+  const miss = (state.cur.params.primary || []).filter(p => p.kind === 'image' && !state.values[p.key]);
+  if(miss.length){
+    toast(miss.length > 1 ? '还有参考图没选' : '请先选一张图片');
+    return;
+  }
+  btn.disabled = true; btn.textContent = '提交中…';
+  $('#out').innerHTML = '';
+  try{
+    const res = await api('/api/run', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: state.cur.id, values: state.values})
+    });
+    if(res.node_errors && Object.keys(res.node_errors).length){
+      throw new Error('工作流校验失败:\n' + JSON.stringify(res.node_errors, null, 1).slice(0,500));
+    }
+    poll(res.prompt_id);
+  }catch(e){
+    $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    btn.disabled = false; btn.textContent = '运行';
+  }
+}
+
+function stopPoll(){
+  if(state.polling){ clearInterval(state.polling); state.polling = null; }
+}
+
+function setStat(text, on){
+  const rs = $('#runstat');
+  if(!rs) return;
+  rs.textContent = text || '';
+  rs.classList.toggle('on', !!on && !!text);
+}
+
+function poll(pid){
+  stopPoll();
+  const t0 = Date.now();
+  const out = $('#out');
+  const btn = $('#run');
+  btn.disabled = true; btn.textContent = '运行中…';
+  out.innerHTML = '';
+  setStat('已提交，准备中…', true);
+
+  const tick = async ()=>{
+    const sec = Math.round((Date.now()-t0)/1000);
+    try{
+      const h = await api('/api/job?id=' + encodeURIComponent(pid));
+      const job = h[pid];
+      if(job && job.outputs && Object.keys(job.outputs).length){
+        stopPoll();
+        btn.disabled = false; btn.textContent = '再跑一次';
+        setStat(`完成 · 用时 ${sec}s`, true);
+        renderOutputs(job.outputs, sec);
+        return;
+      }
+      const st = job && job.status;
+      if(st && st.status_str === 'error'){
+        stopPoll(); btn.disabled = false; btn.textContent = '重新运行';
+        setStat('执行出错', true);
+        out.innerHTML = `<div class="err">执行出错，去电脑端的 ComfyUI 窗口看日志</div>`;
+        return;
+      }
+      setStat(st && st.status_str === 'running' ? `生成中 ${sec}s` : `排队中 ${sec}s`, true);
+    }catch(e){
+      setStat(`等待中 ${sec}s`, true);
+    }
+  };
+  state.polling = setInterval(tick, 2000);
+  tick();
+}
+
+function renderOutputs(outputs, sec){
+  const files = [];
+  for(const nid in outputs){
+    const o = outputs[nid];
+    for(const key of ['images','gifs','videos']){
+      if(Array.isArray(o[key])) o[key].forEach(f => files.push(f));
+    }
+  }
+  if(!files.length){
+    $('#out').innerHTML = `<div class="stat">完成（${sec}s），但这个工作流没有可预览的输出节点</div>`;
+    return;
+  }
+  const cells = files.map(f=>{
+    const q = `/api/view?filename=${encodeURIComponent(f.filename)}&subfolder=${encodeURIComponent(f.subfolder||'')}&type=${encodeURIComponent(f.type||'output')}`;
+    const ext = (f.filename.split('.').pop()||'').toLowerCase();
+    if(['mp4','webm','mov'].includes(ext)) return `<video src="${q}" controls playsinline></video>`;
+    const m = f.metadata || {};
+    const ar = (m.width && m.height) ? ` style="aspect-ratio:${m.width}/${m.height}"` : '';
+    return `<img src="${q}"${ar} decoding="async" data-full="${q}">`;
+  }).join('');
+  $('#out').innerHTML = `<div class="stat" style="color:var(--ok)">● 完成 · 用时 ${sec}s · ${files.length} 个结果</div>
+    <div class="res">${cells}</div>
+    <p class="tip">点击看大图 · 长按保存到相册</p>`;
+  $('#out').querySelectorAll('img[data-full]').forEach(im=>{
+    im.onclick = ()=>{ $('#vimg').src = im.dataset.full; $('#viewer').classList.add('on'); };
+  });
+  setTimeout(()=>{ $('#out').scrollIntoView({behavior:'smooth', block:'start'}); }, 80);
+}
+
+document.addEventListener('focusin', e=>{
+  if(['TEXTAREA','INPUT'].includes(e.target.tagName)) document.body.classList.add('kb');
+});
+document.addEventListener('focusout', ()=>{
+  setTimeout(()=>{
+    const t = document.activeElement && document.activeElement.tagName;
+    if(!['TEXTAREA','INPUT'].includes(t)) document.body.classList.remove('kb');
+  }, 120);
+});
+$('#vclose').onclick = ()=> $('#viewer').classList.remove('on');
+$('#viewer').onclick = (e)=>{ if(e.target.id === 'viewer') $('#viewer').classList.remove('on'); };
+$('#back').onclick = ()=>{ location.hash=''; showList(); };
+window.addEventListener('hashchange', ()=>{ if(!location.hash) showList(); });
+health(); setInterval(health, 20000);
+if(location.hash === '#wf' && localStorage.getItem('lastWf')){
+  openWorkflow(localStorage.getItem('lastWf'));
+} else {
+  showList();
+}
+</script>
+</body>
+</html>

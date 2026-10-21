@@ -1,0 +1,26 @@
+# ===== 用户自己的数据，绝不提交 =====
+api_workflows/
+python.txt
+config.json
+.cache/
+.workbuddy/
+.trash/
+
+# ===== 构建产物 =====
+build/
+dist/
+dist_exe/
+*.spec
+__pycache__/
+*.py[cod]
+
+# ===== 临时文件 =====
+.preview/
+*.log
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
