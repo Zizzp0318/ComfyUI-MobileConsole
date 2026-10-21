@@ -1,0 +1,6 @@
+# 默认按文本处理，统一换行
+* text=auto eol=lf
+
+# 这两个是 GBK 编码，必须原样保存，不能被换行转换
+*.bat binary
+*.txt binary
