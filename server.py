@@ -20,6 +20,15 @@ import urllib.request
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
+
+try:
+    from PIL import Image
+
+    HAS_PIL = True
+except ImportError:
+    Image = None
+    HAS_PIL = False
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -109,6 +118,41 @@ def local_addresses():
 def comfy_get(path, timeout=8):
     with _opener.open(COMFY + path, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
+
+
+def comfy_bytes(path, timeout=60):
+    with _opener.open(COMFY + path, timeout=timeout) as r:
+        return r.read()
+
+
+def compose_mask(base_name, mask_name):
+    """在服务端合成「原图 RGB + 遮罩 alpha」的 PNG。
+
+    浏览器 canvas 导出 PNG 时会把透明像素的 RGB 清零，导致 ComfyUI 转 RGB 后
+    那块变成纯黑/纯白；服务端用 Pillow 合成可以保证 RGB 完整，
+    只把遮罩区的 alpha 压到 1（几乎透明但非零，ComfyUI 的 mask = 1 - alpha ≈ 0.996）。
+    """
+    if not HAS_PIL:
+        raise ValueError("服务端缺少 Pillow，无法合成遮罩（pip install pillow）")
+    q = urllib.parse.quote
+    base = Image.open(
+        BytesIO(comfy_bytes(f"/view?filename={q(base_name)}&type=input"))
+    ).convert("RGB")
+    mask = Image.open(
+        BytesIO(comfy_bytes(f"/view?filename={q(mask_name)}&type=input"))
+    ).convert("L")
+    if mask.size != base.size:
+        mask = mask.resize(base.size, Image.LANCZOS)
+
+    alpha = mask.point(lambda v: 1 if v > 108 else 255)
+    out = base.copy()
+    out.putalpha(alpha)
+    buf = BytesIO()
+    out.save(buf, "PNG")
+
+    name = base_name.rsplit(".", 1)[0] + "_masked.png"
+    res = upload_image(buf.getvalue(), name)
+    return res.get("name", name)
 
 
 def comfy_post(path, payload):
@@ -804,6 +848,10 @@ class Handler(BaseHTTPRequestHandler):
                 prompt = build_prompt(body["id"], values)
                 res = comfy_post("/prompt", {"prompt": prompt, "client_id": uuid.uuid4().hex})
                 return self._send(200, res)
+            if u.path == "/api/mask":
+                body = json.loads(raw.decode("utf-8")) if raw else {}
+                name = compose_mask(body.get("base", ""), body.get("mask", ""))
+                return self._send(200, {"name": name})
             if u.path == "/api/upload":
                 fname = urllib.parse.unquote(self.headers.get("X-Filename") or "upload.png")
                 return self._send(200, upload_image(raw, fname))

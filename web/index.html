@@ -49,8 +49,46 @@
   .row>*{flex:1;min-width:0}
   .pick{border:1px dashed var(--line);border-radius:12px;padding:14px;text-align:center;
     color:var(--muted);font-size:14px;background:var(--card);position:relative;overflow:hidden}
-  .pick img{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px}
+  .pick img{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px;
+    background:#fff}
   .pick input{position:absolute;inset:0;opacity:0;font-size:0}
+  .pick .maskbtn{position:relative;z-index:2;margin-top:4px;padding:6px 16px;border-radius:8px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--text);
+    font:inherit;font-size:12px;cursor:pointer}
+  .pick .maskbtn:active{background:#2a2a36}
+
+  /* ---------- 遮罩编辑器 ---------- */
+  #maskEd{position:fixed;inset:0;height:100dvh;background:#000;z-index:200;
+    display:none;flex-direction:column}
+  #maskEd.on{display:flex}
+  .me-top{flex:none;padding:calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
+    display:flex;align-items:center;border-bottom:1px solid var(--line);
+    color:var(--text);font-size:14px;min-height:44px}
+  .me-top .hint{color:var(--muted);font-size:12px;margin-left:10px;cursor:pointer;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .me-top .close{margin-left:auto;flex:none;background:none;border:0;color:var(--muted);
+    font-size:26px;line-height:1;cursor:pointer;padding:0;width:44px;height:44px;
+    display:flex;align-items:center;justify-content:center;border-radius:10px}
+  .me-top .close:active{background:rgba(255,255,255,.12);color:#fff}
+  .me-stage{flex:1;display:flex;align-items:center;justify-content:center;
+    overflow:hidden;padding:10px;min-height:0;touch-action:none}
+  .me-wrap{position:relative;display:inline-block;max-width:100%;max-height:100%;
+    transform-origin:50% 50%;will-change:transform}
+  .me-wrap img{display:block;max-width:100%;max-height:calc(100dvh - 210px);
+    width:auto;height:auto;border-radius:6px}
+  .me-wrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;
+    opacity:.5;touch-action:none;cursor:crosshair}
+  .me-bar{flex:none;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);
+    background:var(--panel)}
+  .me-bar input[type=range]{flex:1;min-width:50px;accent-color:var(--accent)}
+  .me-bar .tool{width:42px;height:36px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--text);font-size:16px;cursor:pointer;flex:none}
+  .me-bar .tool.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .me-bar .txt{padding:0 12px;height:36px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--text);font:inherit;font-size:13px;
+    cursor:pointer;flex:none}
+  .me-bar .ok{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
   details{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
   summary{color:var(--muted);font-size:14px;cursor:pointer;list-style:none;padding:4px 0}
   summary::-webkit-details-marker{display:none}
@@ -106,6 +144,28 @@
 </header>
 <main id="app"><div class="empty">加载中…</div></main>
 <div class="viewer" id="viewer"><button class="close" id="vclose">关闭</button><img id="vimg" alt=""></div>
+
+<div id="maskEd">
+  <div class="me-top">
+    <span>涂抹要重绘的区域</span>
+    <span class="hint" id="meReset">红色=重绘区 · 双指缩放，点此复位</span>
+    <button class="close" id="meClose" type="button">×</button>
+  </div>
+  <div class="me-stage">
+    <div class="me-wrap">
+      <img id="meImg" alt="">
+      <canvas id="meCanvas"></canvas>
+    </div>
+  </div>
+  <div class="me-bar">
+    <button class="tool on" id="meBrush" type="button" title="画笔">✎</button>
+    <button class="tool" id="meEraser" type="button" title="橡皮">⌫</button>
+    <input type="range" id="meSize" min="6" max="90" value="28">
+    <button class="txt" id="meUndo" type="button">撤销</button>
+    <button class="txt" id="meClear" type="button">清空</button>
+    <button class="txt ok" id="meDone" type="button">完成</button>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -244,6 +304,9 @@ function renderForm(){
         const d = await r.json();
         if(!r.ok) throw new Error(d.error || '上传失败');
         state.values[k] = d.name;
+        state.maskSrc = state.maskSrc || {};
+        state.maskSrc[k] = d.name;
+        ensureMaskBtn(box, k);
         let img = box.querySelector('img.preview');
         if(!img){
           img = document.createElement('img');
@@ -261,8 +324,263 @@ function renderForm(){
     });
   });
 
+  /* ================= 遮罩编辑器 ================= */
+  setupMaskEditor();
+
   $('#run').onclick = run;
   window.scrollTo({top:0});
+}
+
+const meMask = document.createElement('canvas');
+let meImg = null, meKey = null, meStrokes = [], meCur = null, meMode = 'brush', meSize = 28;
+let meScale = 1, meTx = 0, meTy = 0;
+
+function ensureMaskBtn(box, key){
+  if(box.querySelector('.maskbtn')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'maskbtn';
+  b.textContent = '画遮罩';
+  b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); openMaskEditor(key); };
+  box.appendChild(b);
+}
+
+function meRedraw(){
+  const c = $('#meCanvas');
+  if(!c || !meImg) return;
+  const ctx = c.getContext('2d');
+  const mctx = meMask.getContext('2d');
+  mctx.clearRect(0, 0, meMask.width, meMask.height);
+  mctx.lineCap = 'round';
+  mctx.lineJoin = 'round';
+  mctx.fillStyle = '#ff3c3c';
+  mctx.strokeStyle = '#ff3c3c';
+  for(const s of meStrokes){
+    mctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+    mctx.lineWidth = s.size;
+    if(s.pts.length === 1){
+      mctx.beginPath();
+      mctx.arc(s.pts[0].x, s.pts[0].y, s.size / 2, 0, Math.PI * 2);
+      mctx.fill();
+    }else{
+      mctx.beginPath();
+      mctx.moveTo(s.pts[0].x, s.pts[0].y);
+      for(let i = 1; i < s.pts.length; i++) mctx.lineTo(s.pts[i].x, s.pts[i].y);
+      mctx.stroke();
+    }
+  }
+  mctx.globalCompositeOperation = 'source-over';
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.drawImage(meMask, 0, 0);
+}
+
+function mePos(ev){
+  const c = $('#meCanvas');
+  const r = c.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left) * (c.width / r.width),
+    y: (ev.clientY - r.top) * (c.height / r.height)
+  };
+}
+
+function openMaskEditor(key){
+  const src = (state.maskSrc && state.maskSrc[key]) || state.values[key];
+  if(!src){ toast('请先上传图片'); return; }
+  meKey = key;
+  meStrokes = [];
+  meCur = null;
+  meScale = 1;
+  meTx = 0;
+  meTy = 0;
+  const wrap = document.querySelector('.me-wrap');
+  if(wrap){
+    wrap.style.transformOrigin = '50% 50%';
+    wrap.style.transform = '';
+  }
+  $('#maskEd').classList.add('on');
+  const img = new Image();
+  img.onload = ()=>{
+    meImg = img;
+    const c = $('#meCanvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    meMask.width = c.width;
+    meMask.height = c.height;
+    $('#meImg').src = img.src;
+    meRedraw();
+  };
+  img.onerror = ()=>{ toast('图片加载失败'); };
+  img.src = `/api/view?filename=${encodeURIComponent(src)}&type=input&t=${Date.now()}`;
+}
+
+function finishMask(){
+  if(!meImg || !meStrokes.length){ toast('还没有涂抹'); return; }
+  const w = meImg.naturalWidth, h = meImg.naturalHeight;
+
+  // 1) 生成黑白遮罩图（全不透明，避免浏览器把透明像素的 RGB 清零）
+  const tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  const tx = tmp.getContext('2d');
+  tx.drawImage(meMask, 0, 0);
+  tx.globalCompositeOperation = 'source-in';
+  tx.fillStyle = '#ffffff';
+  tx.fillRect(0, 0, w, h);
+
+  const mc = document.createElement('canvas');
+  mc.width = w; mc.height = h;
+  const mx = mc.getContext('2d');
+  mx.fillStyle = '#000000';
+  mx.fillRect(0, 0, w, h);
+  mx.drawImage(tmp, 0, 0);
+
+  const raw = String((state.maskSrc && state.maskSrc[meKey]) || 'image');
+  const stem = raw.replace(/\.[^.]+$/, '');
+
+  mc.toBlob(async blob=>{
+    if(!blob){ toast('生成失败'); return; }
+    try{
+      // 2) 先上传遮罩图
+      const r1 = await fetch('/api/upload', {
+        method:'POST',
+        headers:{'X-Filename': encodeURIComponent(stem + '_m.png')},
+        body: blob
+      });
+      const d1 = await r1.json();
+      if(!r1.ok) throw new Error(d1.error || '遮罩上传失败');
+
+      // 3) 交给服务端合成「原图 RGB + 遮罩 alpha」
+      const r2 = await fetch('/api/mask', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ base: raw, mask: d1.name })
+      });
+      const d2 = await r2.json();
+      if(!r2.ok) throw new Error(d2.error || '合成失败');
+
+      state.values[meKey] = d2.name;
+      const box = document.querySelector(`[data-pick="${meKey}"]`);
+      const pv = box && box.querySelector('img.preview');
+      if(pv) pv.src = `/api/view?filename=${encodeURIComponent(d2.name)}&type=input&t=${Date.now()}`;
+      $('#maskEd').classList.remove('on');
+      toast('遮罩已应用，直接运行即可');
+    }catch(e){ toast(e.message); }
+  }, 'image/png');
+}
+
+function setupMaskEditor(){
+  const c = $('#meCanvas');
+  if(!c || c.dataset.bound) return;
+  c.dataset.bound = '1';
+
+  const ptrs = new Map();
+  let pinch = null;
+
+  const wrapEl = () => document.querySelector('.me-wrap');
+  function applyT(){
+    const w = wrapEl();
+    if(w) w.style.transform = `translate(${meTx}px, ${meTy}px) scale(${meScale})`;
+  }
+  function resetView(){
+    meScale = 1; meTx = 0; meTy = 0;
+    const w = wrapEl();
+    if(w){ w.style.transformOrigin = '50% 50%'; w.style.transform = ''; }
+  }
+  function pinchInfo(){
+    const p = [...ptrs.values()];
+    return {
+      d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1,
+      cx: (p[0].x + p[1].x) / 2,
+      cy: (p[0].y + p[1].y) / 2
+    };
+  }
+
+  c.addEventListener('pointerdown', ev=>{
+    if(!meImg) return;
+    ev.preventDefault();
+    try{ c.setPointerCapture(ev.pointerId); }catch(e){}
+    ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    if(ptrs.size === 1){
+      const r = c.getBoundingClientRect();
+      meCur = { size: meSize * (c.width / r.width), erase: meMode === 'eraser', pts: [mePos(ev)] };
+      meStrokes.push(meCur);
+      meRedraw();
+    }else if(ptrs.size === 2){
+      // 进入双指：撤掉刚才单指起的那一笔，避免误画
+      if(meCur){ meStrokes.pop(); meCur = null; meRedraw(); }
+      const { d, cx, cy } = pinchInfo();
+      const w = wrapEl();
+      const r = w.getBoundingClientRect();
+      const ox = r.width ? (cx - r.left) / r.width : 0.5;
+      const oy = r.height ? (cy - r.top) / r.height : 0.5;
+      w.style.transformOrigin = `${(ox * 100).toFixed(2)}% ${(oy * 100).toFixed(2)}%`;
+      pinch = { d0: d, s0: meScale, cx0: cx, cy0: cy, tx0: meTx, ty0: meTy };
+    }
+  });
+
+  c.addEventListener('pointermove', ev=>{
+    if(!ptrs.has(ev.pointerId)) return;
+    ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    if(ptrs.size >= 2 && pinch){
+      ev.preventDefault();
+      const { d, cx, cy } = pinchInfo();
+      let s = pinch.s0 * (d / pinch.d0);
+      s = Math.min(8, Math.max(1, s));
+      meScale = s;
+      meTx = pinch.tx0 + (cx - pinch.cx0);
+      meTy = pinch.ty0 + (cy - pinch.cy0);
+      applyT();
+      return;
+    }
+
+    if(!meCur || !meImg) return;
+    ev.preventDefault();
+    const p = mePos(ev);
+    const prev = meCur.pts[meCur.pts.length - 1];
+    meCur.pts.push(p);
+    // 增量绘制，避免每次全量重绘
+    const layers = [meMask.getContext('2d'), c.getContext('2d')];
+    for(const g of layers){
+      g.globalCompositeOperation = meCur.erase ? 'destination-out' : 'source-over';
+      g.strokeStyle = '#ff3c3c';
+      g.lineWidth = meCur.size;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(prev.x, prev.y);
+      g.lineTo(p.x, p.y);
+      g.stroke();
+      g.globalCompositeOperation = 'source-over';
+    }
+  });
+
+  const end = ev=>{
+    ptrs.delete(ev.pointerId);
+    if(ptrs.size < 2) pinch = null;
+    if(ptrs.size === 0) meCur = null;
+  };
+  c.addEventListener('pointerup', end);
+  c.addEventListener('pointercancel', end);
+
+  const rb = $('#meReset');
+  if(rb) rb.onclick = resetView;
+
+  $('#meClose').onclick = ()=> $('#maskEd').classList.remove('on');
+  $('#meBrush').onclick = ()=>{
+    meMode = 'brush';
+    $('#meBrush').classList.add('on');
+    $('#meEraser').classList.remove('on');
+  };
+  $('#meEraser').onclick = ()=>{
+    meMode = 'eraser';
+    $('#meEraser').classList.add('on');
+    $('#meBrush').classList.remove('on');
+  };
+  $('#meSize').oninput = ev=>{ meSize = +ev.target.value; };
+  $('#meUndo').onclick = ()=>{ meStrokes.pop(); meRedraw(); };
+  $('#meClear').onclick = ()=>{ meStrokes = []; meRedraw(); };
+  $('#meDone').onclick = finishMask;
 }
 
 async function run(){
