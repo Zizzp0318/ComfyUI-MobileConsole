@@ -564,47 +564,25 @@ $('#previewBtn').onclick = () => {
   const sel = curFields.filter(f => f.selected);
   const title = $('#fTitle').value || curMeta.title || '工作流';
 
-  // 和手机端同一套分区规则，并按管理页里的排序决定分区先后
-  const grp = f => f.group || (
-    ['image','video'].includes(f.kind) ? 'image'
-      : /比例|像素|种子|张数|宽|高/i.test(f.label) ? 'size'
-        : /提示词|prompt/i.test(f.label) ? 'prompt' : 'advanced');
-  const buckets = [
-    { t: '提示词', arr: sel.filter(f => grp(f) === 'prompt') },
-    { t: '参考素材', arr: sel.filter(f => grp(f) === 'image') },
-    { t: '画面与种子', arr: sel.filter(f => grp(f) === 'size' || grp(f) === 'seed') },
-  ];
-  const used = new Set([].concat(...buckets.map(b => b.arr)));
-  buckets.push({ t: '其他参数', arr: sel.filter(f => !used.has(f)) });
-
-  const order = new Map(sel.map((f, i) => [f.key, i]));
-  const at = arr => arr.reduce((m, f) => Math.min(m, order.has(f.key) ? order.get(f.key) : 1e9), 1e9);
-  buckets.sort((a, b) => at(a.arr) - at(b.arr));
-
-  const groups = buckets.map(b => [b.t, b.arr]);
-
+  // 和手机端一致：每个参数一张独立卡片，按管理页排序平铺（不再按大类分区）
   let body = `<div style="padding:6px 4px 12px;font-size:15px;font-weight:600">${esc(title)}</div>`;
-  for(const [name, arr] of groups){
-    if(!arr.length) continue;
-    body += `<div class="pv-sec"><div class="t"><span class="b"></span>${name}</div>`;
-    for(const f of arr){
-      body += `<div class="pv-f">${esc(f.label)}</div>`;
-      if(['image','video'].includes(f.kind)){
-        body += `<div class="pv-pick">点击选择${f.kind==='video'?'视频':'图片'}</div>`;
-      }else if(f.kind === 'select' && f.choices && f.choices.length && f.choices.every(c => /^\s*\d+\s*:\s*\d+/.test(String(c)))){
-        body += `<div class="pv-ratios">` + f.choices.slice(0, 8).map(c => {
-          const m = String(c).match(/^\s*(\d+)\s*:\s*(\d+)/);
-          return `<span>${esc(m[1])}:${esc(m[2])}</span>`;
-        }).join('') + `</div>`;
-      }else if(f.kind === 'toggle'){
-        body += `<div class="pv-box">${(String(f.value)==='true'||f.value===true)?'已开启':'已关闭'}</div>`;
-      }else if(f.kind === 'select'){
-        body += `<div class="pv-box">${esc(f.value)}</div>`;
-      }else if(f.multi){
-        body += `<div class="pv-box ta">${esc(f.value) || '在这里输入提示词…'}</div>`;
-      }else{
-        body += `<div class="pv-box">${esc(f.value)}</div>`;
-      }
+  for(const f of sel){
+    body += `<div class="pv-sec"><div class="t"><span class="b"></span>${esc(f.label)}</div>`;
+    if(['image','video'].includes(f.kind)){
+      body += `<div class="pv-pick">点击选择${f.kind==='video'?'视频':'图片'}</div>`;
+    }else if(f.kind === 'select' && f.choices && f.choices.length && f.choices.every(c => /^\s*\d+\s*:\s*\d+/.test(String(c)))){
+      body += `<div class="pv-ratios">` + f.choices.slice(0, 8).map(c => {
+        const m = String(c).match(/^\s*(\d+)\s*:\s*(\d+)/);
+        return `<span>${esc(m[1])}:${esc(m[2])}</span>`;
+      }).join('') + `</div>`;
+    }else if(f.kind === 'toggle'){
+      body += `<div class="pv-box">${(String(f.value)==='true'||f.value===true)?'已开启':'已关闭'}</div>`;
+    }else if(f.kind === 'select'){
+      body += `<div class="pv-box">${esc(f.value)}</div>`;
+    }else if(f.multi){
+      body += `<div class="pv-box ta">${esc(f.value) || '在这里输入提示词…'}</div>`;
+    }else{
+      body += `<div class="pv-box">${esc(f.value)}</div>`;
     }
     body += `</div>`;
   }

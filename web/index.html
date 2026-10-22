@@ -148,15 +148,6 @@
   .sw input:checked{background:var(--accent)}
   .sw input:checked::after{left:22px}
 
-  details.adv{border-radius:var(--r);overflow:hidden;margin-bottom:14px}
-  details.adv>summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;
-    align-items:center;gap:9px;font-size:13px;color:var(--dim)}
-  details.adv>summary::-webkit-details-marker{display:none}
-  details.adv>summary .cnt{font-size:11px;color:var(--dim2)}
-  details.adv>summary .car{margin-left:auto;transition:transform .18s;color:var(--dim2)}
-  details.adv[open]>summary .car{transform:rotate(90deg)}
-  details.adv .bd{padding:0 16px 16px}
-
   .runbar{position:fixed;left:0;right:0;bottom:0;z-index:30;
     padding:10px 14px calc(10px + env(safe-area-inset-bottom));
     background:rgba(10,10,16,.72);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
@@ -218,6 +209,7 @@
     touch-action:none;overscroll-behavior:contain}
   .viewer.on{display:flex}
   .vwrap{transform-origin:0 0;will-change:transform}
+  .vwrap.anim{transition:transform .26s cubic-bezier(.22,.61,.36,1)}
   .vwrap img{display:block;max-width:100vw;max-height:100dvh;object-fit:contain;
     pointer-events:none;-webkit-user-select:none}
   .viewer .vhint{position:absolute;left:50%;transform:translateX(-50%);
@@ -225,6 +217,9 @@
     background:rgba(0,0,0,.4);padding:6px 12px;border-radius:10px;white-space:nowrap;
     transition:opacity .25s}
   .viewer .vhint.fade{opacity:0}
+  .viewer .vload{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:13px;color:rgba(255,255,255,.62);display:none;z-index:1;
+    padding:8px 14px;border-radius:12px;background:rgba(0,0,0,.35)}
   .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;z-index:2;
     color:#fff;font-size:13px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);
     border-radius:20px;padding:8px 16px;backdrop-filter:blur(10px)}
@@ -288,6 +283,7 @@
 <div class="viewer" id="viewer">
   <button class="close" id="vclose">关闭</button>
   <div class="vwrap" id="vwrap"><img id="vimg" alt=""></div>
+  <div class="vload" id="vload">加载中…</div>
   <div class="vhint" id="vhint">双指缩放 · 双击放大 · 下滑关闭 · 长按保存</div>
 </div>
 
@@ -465,8 +461,7 @@ async function openWorkflow(id){
     state.values = {};
     state.maskSrc = {};
     $('#title').textContent = d.title || id.split('/').pop().replace('.api.json','');
-    $('#sub').textContent = (d.params.primary.length + d.params.advanced.length) + ' 个参数' +
-      (d.params.advanced.length ? ' · 高级可展开' : '');
+    $('#sub').textContent = (d.params.primary.length + d.params.advanced.length) + ' 个参数';
     $('#back').style.display = 'flex';
     app.classList.remove('no-bar');
     pushRecent({ id: d.id, name: d.title || d.id });
@@ -511,7 +506,7 @@ function fldHtml(p, skipLabel){
       `<option value="${esc(c)}"${String(c)===String(v)?' selected':''}>${esc(c)}</option>`).join('');
     inner = `<select data-v="${k}">${opts}</select>`;
   }else if(p.kind === 'toggle'){
-    return `<div class="fld" data-fld="${k}"><div class="sw"><span>${esc(p.label)}</span>
+    return `<div class="fld" data-fld="${k}"><div class="sw"><span>${skipLabel ? '' : esc(p.label)}</span>
       <input type="checkbox" data-v="${k}"${(v === true || String(v).toLowerCase() === 'true') ? ' checked' : ''}></div></div>`;
   }else if(p.kind === 'number'){
     const minA = (typeof p.min === 'number') ? ` min="${p.min}"` : '';
@@ -543,7 +538,7 @@ function isRatioField(p){
   return hit.length >= 3 && hit.length === p.choices.length;
 }
 
-function ratioGrid(p){
+function ratioGrid(p, skipLabel){
   const k = esc(p.key);
   const v = state.values[p.key] !== undefined ? state.values[p.key] : p.value;
   const cells = p.choices.map(c => {
@@ -555,62 +550,34 @@ function ratioGrid(p){
       <span class="box"><i style="width:${w}px;height:${hh}px"></i></span>
       <span>${esc(m[1])}:${esc(m[2])}</span></button>`;
   }).join('');
-  return `<div class="fld" data-fld="${k}"><label>${esc(p.label)}</label>
+  const lab = skipLabel ? '' : `<label>${esc(p.label)}</label>`;
+  return `<div class="fld" data-fld="${k}">${lab}
     <div class="ratios" data-rg="${k}">${cells}</div></div>`;
 }
 
-function section(title, bodyHtml, action){
-  return `<section class="sec glass"><div class="hd"><span class="bar"></span><h2>${esc(title)}</h2>
-    ${action || ''}</div><div class="bd">${bodyHtml}</div></section>`;
+/* 每个参数一张独立卡片，不做大类分组 */
+function fieldCard(p){
+  const k = esc(p.key);
+  let action = '';
+  if(p.group === 'prompt' && p.kind === 'text'){
+    // 跟 fldHtml 保持一致：state 里没有就用参数默认值，否则初次渲染会误判成「已修改」
+    const cur = state.values[p.key] !== undefined ? state.values[p.key] : p.value;
+    if(String(cur) === '') action = '';                       // 空的没什么可清/可复制
+    else if(String(cur) !== String(p.value || ''))
+      action = `<button class="act" data-act="clearfld" data-key="${k}" type="button">清空</button>`;
+    else
+      action = `<button class="act" data-act="copyfld" data-key="${k}" type="button">复制</button>`;
+  }
+  const body = isRatioField(p) ? ratioGrid(p, true) : fldHtml(p, true);
+  return `<section class="sec glass"><div class="hd"><span class="bar"></span><h2>${esc(p.label)}</h2>
+    ${action}</div><div class="bd">${body}</div></section>`;
 }
 
 function renderForm(){
   const d = state.cur;
-  const P = d.params.primary, A = d.params.advanced;
-  const promptFields = P.filter(p => p.group === 'prompt');
-  const prompts = promptFields.filter(p => p.kind === 'text');
-  const images = P.filter(p => p.kind === 'image' || p.kind === 'video');
-  const sizes = P.filter(p => (p.group === 'size' || p.group === 'seed') && !images.includes(p));
-  const used = new Set([...promptFields, ...images, ...sizes]);
-  const rest = P.filter(p => !used.has(p));
-
-  // 分区顺序跟着管理页里排的顺序走：哪一块的第一个字段排得最靠前，哪一块就放最上面
-  const posOf = new Map(P.map((p, i) => [p.key, i]));
-  const firstAt = arr => arr.reduce((m, p) => {
-    const at = posOf.has(p.key) ? posOf.get(p.key) : 1e9;
-    return Math.min(m, at);
-  }, 1e9);
-
-  const blocks = [];
-  if(promptFields.length){
-    const onlyOne = promptFields.length === 1;
-    const body = promptFields.map(p => fldHtml(p, onlyOne && p.kind === 'text')).join('');
-    const changed = prompts.some(p => String(state.values[p.key] || '') !== String(p.value || ''));
-    blocks.push({ at: firstAt(promptFields), html: section('提示词', body,
-      changed ? '<button class="act" data-act="clearprompt" type="button">清空</button>'
-              : '<button class="act" data-act="copyprompt" type="button">复制</button>') });
-  }
-  if(images.length){
-    blocks.push({ at: firstAt(images), html: section('参考素材', images.map(p => fldHtml(p)).join('')) });
-  }
-  if(sizes.length){
-    blocks.push({ at: firstAt(sizes), html: section('画面与种子',
-      sizes.map(p => isRatioField(p) ? ratioGrid(p) : fldHtml(p)).join('')) });
-  }
-  if(rest.length){
-    blocks.push({ at: firstAt(rest), html: section('其他参数', rest.map(p => fldHtml(p)).join('')) });
-  }
-  blocks.sort((a, b) => a.at - b.at);
-
-  let h = blocks.map(b => b.html).join('');
-
-  if(A.length){
-    h += `<details class="adv glass" ${A.length <= 6 ? 'open' : ''}>
-      <summary><span style="width:3px;height:13px;border-radius:2px;background:var(--accent2);flex:none"></span>
-      高级参数<span class="cnt">${A.length} 项</span><span class="car">›</span></summary>
-      <div class="bd">${A.map(p => fldHtml(p)).join('')}</div></details>`;
-  }
-
+  // 全部参数按管理页排好的顺序平铺，每个参数一张卡片，高级参数不再单独折叠
+  const all = [...d.params.primary, ...d.params.advanced];
+  let h = all.map(fieldCard).join('');
   h += '<div id="out"></div>';
 
   app.innerHTML = h;
@@ -691,17 +658,15 @@ function bindForm(){
     };
   });
 
-  const cp = app.querySelector('[data-act="clearprompt"]');
-  if(cp) cp.onclick = () => {
-    state.cur.params.primary.filter(p => p.group === 'prompt').forEach(p => state.values[p.key] = '');
-    renderForm(); toast('提示词已清空');
-  };
-  const cp2 = app.querySelector('[data-act="copyprompt"]');
-  if(cp2) cp2.onclick = async () => {
-    const p = state.cur.params.primary.find(x => x.group === 'prompt');
-    try{ await navigator.clipboard.writeText(String(state.values[p.key] || '')); toast('已复制'); }
-    catch(e){ toast('复制失败'); }
-  };
+  app.querySelectorAll('[data-act="clearfld"]').forEach(b => {
+    b.onclick = () => { state.values[b.dataset.key] = ''; renderForm(); toast('已清空'); };
+  });
+  app.querySelectorAll('[data-act="copyfld"]').forEach(b => {
+    b.onclick = async () => {
+      try{ await navigator.clipboard.writeText(String(state.values[b.dataset.key] || '')); toast('已复制'); }
+      catch(e){ toast('复制失败'); }
+    };
+  });
 
   $('#run').onclick = () => state.running ? stopRun() : doRun();
   $('#jump').onclick = () => $('#out').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -1109,45 +1074,99 @@ function setupMaskEditor(){
    iOS 添加到主屏后系统级双指缩放基本被禁用，而且首页 viewport 里写了 maximum-scale=1，
    所以缩放只能自己做：纯 transform，和系统手势无关，Safari / 独立窗口表现一致。
    ============================================================== */
-const vw = { el: null, s: 1, tx: 0, ty: 0, ptrs: new Map(), pinch: null,
-             start: null, moved: false, lastTap: 0, tapTimer: null };
+const vw = { el: null, s: 1, tx: 0, ty: 0, base: null, ptrs: new Map(), pinch: null,
+             start: null, moved: false, pinched: false, lastTap: 0, tapTimer: null, animT: null };
 
 function vApply(){
   if(vw.el) vw.el.style.transform =
-    'translate(' + vw.tx + 'px,' + vw.ty + 'px) scale(' + vw.s + ')';
+    'translate3d(' + vw.tx + 'px,' + vw.ty + 'px,0) scale(' + vw.s + ')';
 }
+
+/* 只量一次「未变换」的布局框：把 transform 归零再取 rect。
+   用变换后的 rect 去反推基准，手指一动就会算歪，这是之前跳左上角的根因。 */
+function vMeasure(){
+  if(!vw.el) return false;
+  const box = $('#viewer');
+  const keep = vw.el.style.transform;
+  const anim = vw.el.classList.contains('anim');
+  vw.el.classList.remove('anim');
+  vw.el.style.transform = 'none';
+  const r = vw.el.getBoundingClientRect();
+  vw.el.style.transform = keep;
+  if(anim) vw.el.classList.add('anim');
+  if(!r.width || !r.height) return false;          // 图片还没解码，量不到
+  vw.base = { L: r.left, T: r.top, w: r.width, h: r.height,
+              vw: box.clientWidth, vh: box.clientHeight };
+  return true;
+}
+
 function vClamp(){
-  if(vw.s <= 1.001){ vw.s = 1; vw.tx = 0; vw.ty = 0; return; }
-  const W = vw.el.offsetWidth, H = vw.el.offsetHeight;
-  vw.tx = Math.min(0, Math.max(-W * (vw.s - 1), vw.tx));
-  vw.ty = Math.min(0, Math.max(-H * (vw.s - 1), vw.ty));
+  const b = vw.base;
+  if(!b) return;
+  if(vw.s < 1) vw.s = 1;
+  const sw = b.w * vw.s, sh = b.h * vw.s;
+  // 比视口小就居中（不让人把图拖到角上），比视口大就夹住，别露黑边
+  vw.tx = sw <= b.vw ? (b.vw - sw) / 2 - b.L
+                     : Math.min(-b.L, Math.max(b.vw - sw - b.L, vw.tx));
+  vw.ty = sh <= b.vh ? (b.vh - sh) / 2 - b.T
+                     : Math.min(-b.T, Math.max(b.vh - sh - b.T, vw.ty));
 }
-function vReset(){ vw.s = 1; vw.tx = 0; vw.ty = 0; vApply(); }
+
+function vReset(){ vw.s = 1; vw.tx = 0; vw.ty = 0; vClamp(); vApply(); }
+
+function vAnimate(){
+  if(!vw.el) return;
+  vw.el.classList.add('anim');
+  clearTimeout(vw.animT);
+  vw.animT = setTimeout(() => { if(vw.el) vw.el.classList.remove('anim'); }, 280);
+}
 
 function vZoomAt(px, py, ns){
-  if(!vw.el) return;
+  const b = vw.base;
+  if(!vw.el || !b) return;
   ns = Math.min(6, Math.max(1, ns));
-  const r = vw.el.getBoundingClientRect();
-  const baseL = r.left - vw.tx, baseT = r.top - vw.ty;
   const k = ns / vw.s;
-  vw.tx = (px - baseL) - (px - baseL - vw.tx) * k;
-  vw.ty = (py - baseT) - (py - baseT - vw.ty) * k;
+  // 让焦点下的那个像素在缩放前后停在原地
+  vw.tx = (px - b.L) - (px - b.L - vw.tx) * k;
+  vw.ty = (py - b.T) - (py - b.T - vw.ty) * k;
   vw.s = ns;
+  vClamp(); vApply();
+}
+
+function fitViewer(){
+  vw.s = 1; vw.tx = 0; vw.ty = 0;
+  vMeasure();
   vClamp(); vApply();
 }
 
 function openViewer(src){
   vw.el = $('#vwrap');
-  $('#vimg').src = src;
+  const img = $('#vimg');
+  const load = $('#vload');
   $('#viewer').classList.add('on');
-  vw.ptrs.clear(); vw.pinch = null; vw.start = null; vw.moved = false; vw.lastTap = 0;
-  vReset();
+  vw.ptrs.clear(); vw.pinch = null; vw.start = null;
+  vw.moved = false; vw.pinched = false; vw.lastTap = 0;
+  vw.el.classList.remove('anim');
+  load.textContent = '加载中…';
+  load.style.display = 'block';                    // 大图要走网络，先给个提示
+  fitViewer();
+  // 图片解码完成后布局框才有尺寸，这时才量得准；量到之前先按初始状态显示
+  img.onload = () => {
+    load.style.display = 'none';
+    if($('#viewer').classList.contains('on')) fitViewer();
+  };
+  img.onerror = () => { load.textContent = '图片加载失败'; };
+  img.src = src;
+  if(img.complete && img.naturalWidth){ load.style.display = 'none'; fitViewer(); }
   const h = $('#vhint');
   h.classList.remove('fade');
   clearTimeout(h._t);
   h._t = setTimeout(() => h.classList.add('fade'), 2800);
 }
-function closeViewer(){ $('#viewer').classList.remove('on'); }
+function closeViewer(){
+  $('#viewer').classList.remove('on');
+  if(vw.el) vw.el.classList.remove('anim');
+}
 
 function bindViewerGestures(){
   const box = $('#viewer');
@@ -1157,15 +1176,19 @@ function bindViewerGestures(){
   box.addEventListener('pointerdown', ev => {
     if(ev.target.closest('.close')) return;
     if(!vw.el) vw.el = $('#vwrap');
+    if(!vw.base) vMeasure();
     try{ box.setPointerCapture(ev.pointerId); }catch(e){}
     vw.ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if(vw.ptrs.size === 1){
       vw.start = { x: ev.clientX, y: ev.clientY, tx: vw.tx, ty: vw.ty, t: Date.now() };
-      vw.moved = false;
+      vw.moved = false; vw.pinched = false;
     }else if(vw.ptrs.size === 2){
       const a = [...vw.ptrs.values()];
-      vw.pinch = { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1, s0: vw.s };
-      vw.moved = true;
+      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+      // 两指起点太近时距离比会被放大成「一碰就 3 倍」，给个下限
+      vw.pinch = { d: Math.max(26, d), s0: vw.s };
+      vw.moved = true; vw.pinched = true;
+      vw.start = null;                       // 双指期间不参与单指拖动/轻点判定
     }
   });
 
@@ -1176,7 +1199,7 @@ function bindViewerGestures(){
     if(vw.ptrs.size >= 2 && vw.pinch){
       ev.preventDefault();
       const a = [...vw.ptrs.values()];
-      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
       vZoomAt((a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2, vw.pinch.s0 * d / vw.pinch.d);
       return;
     }
@@ -1195,17 +1218,25 @@ function bindViewerGestures(){
   const end = ev => {
     if(!vw.ptrs.has(ev.pointerId)) return;
     vw.ptrs.delete(ev.pointerId);
-    if(vw.ptrs.size < 2) vw.pinch = null;
-    if(vw.ptrs.size > 0) return;
+
+    // 双指松开一指：以剩下的那根手指为新的拖动起点，否则沿用旧起点会瞬间跳位
+    if(vw.ptrs.size >= 1){
+      vw.pinch = null;
+      const p = [...vw.ptrs.values()][0];
+      vw.start = { x: p.x, y: p.y, tx: vw.tx, ty: vw.ty, t: Date.now() };
+      return;
+    }
+
     const st = vw.start;
-    vw.start = null;
+    vw.start = null; vw.pinch = null;
     if(!st) return;
     const dx = ev.clientX - st.x, dy = ev.clientY - st.y, dt = Date.now() - st.t;
 
-    if(!vw.moved && dt < 320){
+    if(!vw.moved && !vw.pinched && dt < 320){
       const now = Date.now();
       if(now - vw.lastTap < 300){
         clearTimeout(vw.tapTimer); vw.lastTap = 0;          // 双击：放大 / 复位
+        vAnimate();
         if(vw.s > 1) vReset(); else vZoomAt(ev.clientX, ev.clientY, 2.5);
       }else{
         vw.lastTap = now;
@@ -1213,7 +1244,7 @@ function bindViewerGestures(){
       }
       return;
     }
-    if(vw.s <= 1.01 && dy > 110 && Math.abs(dx) < 90){ closeViewer(); return; }  // 下滑关闭
+    if(!vw.pinched && vw.s <= 1.01 && dy > 110 && Math.abs(dx) < 90){ closeViewer(); return; }  // 下滑关闭
     if(vw.s <= 1.001) vReset();
   };
   box.addEventListener('pointerup', end);
@@ -1237,6 +1268,10 @@ document.addEventListener('focusout', () => {
 });
 $('#vclose').onclick = () => closeViewer();
 bindViewerGestures();
+// 横竖屏切换后布局框变了，重新量一次并回到「适合屏幕」
+window.addEventListener('orientationchange', () => {
+  if($('#viewer').classList.contains('on')) setTimeout(fitViewer, 260);
+});
 $('#back').onclick = () => showList();
 window.addEventListener('hashchange', () => { if(!location.hash) showList(); });
 
