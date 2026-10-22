@@ -56,8 +56,9 @@
 
   .search{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;
     border-radius:var(--r2);margin-bottom:14px}
-  .search input{flex:1;min-width:0;background:none;border:0;outline:none;color:var(--text);
-    font:inherit;font-size:15px}
+  .search input[type=text]{flex:1;min-width:0;background:none;border:0;border-radius:0;
+    padding:0;box-shadow:none;color:var(--text);font:inherit;font-size:15px}
+  .search input[type=text]:focus{border:0;box-shadow:none}
   .search input::placeholder{color:var(--dim2)}
   .search .ic{flex:none;width:15px;height:15px;display:block;color:var(--dim2)}
   .search .clr{flex:none;border:0;background:none;color:var(--dim2);font-size:15px;padding:4px;cursor:pointer}
@@ -75,6 +76,9 @@
   .gh:first-child{margin-top:2px}
   .gh .line{flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
   .gh .n{font-size:11px;color:var(--dim2)}
+  .gh .act{border:0;background:none;color:var(--dim2);font:inherit;font-size:11px;
+    padding:2px 6px;margin-left:2px;cursor:pointer}
+  .gh .act:active{color:var(--text)}
 
   .row{display:flex;align-items:center;gap:12px;padding:15px 16px;margin-bottom:9px;
     border-radius:var(--r2);text-align:left;width:100%;font:inherit;color:inherit;
@@ -356,7 +360,8 @@ function renderList(filter){
     <button class="clr" id="qc" style="display:${q ? 'block' : 'none'}">✕</button></div>`;
 
   if(!q && recents.length){
-    h += `<div class="gh"><span>最近使用</span><span class="line"></span></div>
+    h += `<div class="gh"><span>最近使用</span><span class="line"></span>
+      <button class="act" id="recClear" type="button">清除</button></div>
       <div class="rec">` + recents.map(r =>
         `<button class="chip" data-open="${esc(r.id)}">${esc(r.name)}</button>`).join('') + `</div>`;
   }
@@ -392,6 +397,8 @@ function renderList(filter){
   }
   const clr = $('#qc');
   if(clr) clr.onclick = () => renderList('');
+  const rc = $('#recClear');
+  if(rc) rc.onclick = () => { LS.set('recent', []); renderList(); toast('已清除最近使用'); };
   app.querySelectorAll('[data-open]').forEach(el => {
     el.onclick = () => openWorkflow(el.dataset.open);
   });
