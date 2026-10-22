@@ -214,10 +214,18 @@
   .hint{color:var(--dim2);font-size:12px;text-align:center;margin:12px 0 0}
 
   .viewer{position:fixed;inset:0;height:100dvh;background:rgba(0,0,0,.92);z-index:100;
-    display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+    display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px);
+    touch-action:none;overscroll-behavior:contain}
   .viewer.on{display:flex}
-  .viewer img{max-width:100vw;max-height:100dvh;object-fit:contain}
-  .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;
+  .vwrap{transform-origin:0 0;will-change:transform}
+  .vwrap img{display:block;max-width:100vw;max-height:100dvh;object-fit:contain;
+    pointer-events:none;-webkit-user-select:none}
+  .viewer .vhint{position:absolute;left:50%;transform:translateX(-50%);
+    bottom:calc(env(safe-area-inset-bottom) + 18px);font-size:11px;color:rgba(255,255,255,.55);
+    background:rgba(0,0,0,.4);padding:6px 12px;border-radius:10px;white-space:nowrap;
+    transition:opacity .25s}
+  .viewer .vhint.fade{opacity:0}
+  .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;z-index:2;
     color:#fff;font-size:13px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);
     border-radius:20px;padding:8px 16px;backdrop-filter:blur(10px)}
 
@@ -277,7 +285,11 @@
   <button class="btn" id="run">运行</button>
 </div>
 
-<div class="viewer" id="viewer"><button class="close" id="vclose">关闭</button><img id="vimg" alt=""></div>
+<div class="viewer" id="viewer">
+  <button class="close" id="vclose">关闭</button>
+  <div class="vwrap" id="vwrap"><img id="vimg" alt=""></div>
+  <div class="vhint" id="vhint">双指缩放 · 双击放大 · 下滑关闭 · 长按保存</div>
+</div>
 
 <div id="maskEd">
   <div class="me-top">
@@ -878,7 +890,7 @@ function resultBlock(job, fresh){
 
 function bindResult(){
   $('#out').querySelectorAll('img[data-full]').forEach(im => {
-    im.onclick = () => { $('#vimg').src = im.dataset.full; $('#viewer').classList.add('on'); };
+    im.onclick = () => openViewer(im.dataset.full);
   });
   const sv = $('#out').querySelector('[data-save]');
   if(sv) sv.onclick = () => toast('长按图片即可保存到相册');
@@ -1072,6 +1084,126 @@ function setupMaskEditor(){
   $('#meDone').onclick = finishMask;
 }
 
+/* ==================== 全屏看图：自己实现缩放 ====================
+   iOS 添加到主屏后系统级双指缩放基本被禁用，而且首页 viewport 里写了 maximum-scale=1，
+   所以缩放只能自己做：纯 transform，和系统手势无关，Safari / 独立窗口表现一致。
+   ============================================================== */
+const vw = { el: null, s: 1, tx: 0, ty: 0, ptrs: new Map(), pinch: null,
+             start: null, moved: false, lastTap: 0, tapTimer: null };
+
+function vApply(){
+  if(vw.el) vw.el.style.transform =
+    'translate(' + vw.tx + 'px,' + vw.ty + 'px) scale(' + vw.s + ')';
+}
+function vClamp(){
+  if(vw.s <= 1.001){ vw.s = 1; vw.tx = 0; vw.ty = 0; return; }
+  const W = vw.el.offsetWidth, H = vw.el.offsetHeight;
+  vw.tx = Math.min(0, Math.max(-W * (vw.s - 1), vw.tx));
+  vw.ty = Math.min(0, Math.max(-H * (vw.s - 1), vw.ty));
+}
+function vReset(){ vw.s = 1; vw.tx = 0; vw.ty = 0; vApply(); }
+
+function vZoomAt(px, py, ns){
+  if(!vw.el) return;
+  ns = Math.min(6, Math.max(1, ns));
+  const r = vw.el.getBoundingClientRect();
+  const baseL = r.left - vw.tx, baseT = r.top - vw.ty;
+  const k = ns / vw.s;
+  vw.tx = (px - baseL) - (px - baseL - vw.tx) * k;
+  vw.ty = (py - baseT) - (py - baseT - vw.ty) * k;
+  vw.s = ns;
+  vClamp(); vApply();
+}
+
+function openViewer(src){
+  vw.el = $('#vwrap');
+  $('#vimg').src = src;
+  $('#viewer').classList.add('on');
+  vw.ptrs.clear(); vw.pinch = null; vw.start = null; vw.moved = false; vw.lastTap = 0;
+  vReset();
+  const h = $('#vhint');
+  h.classList.remove('fade');
+  clearTimeout(h._t);
+  h._t = setTimeout(() => h.classList.add('fade'), 2800);
+}
+function closeViewer(){ $('#viewer').classList.remove('on'); }
+
+function bindViewerGestures(){
+  const box = $('#viewer');
+  if(box.dataset.bound) return;
+  box.dataset.bound = '1';
+
+  box.addEventListener('pointerdown', ev => {
+    if(ev.target.closest('.close')) return;
+    if(!vw.el) vw.el = $('#vwrap');
+    try{ box.setPointerCapture(ev.pointerId); }catch(e){}
+    vw.ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if(vw.ptrs.size === 1){
+      vw.start = { x: ev.clientX, y: ev.clientY, tx: vw.tx, ty: vw.ty, t: Date.now() };
+      vw.moved = false;
+    }else if(vw.ptrs.size === 2){
+      const a = [...vw.ptrs.values()];
+      vw.pinch = { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1, s0: vw.s };
+      vw.moved = true;
+    }
+  });
+
+  box.addEventListener('pointermove', ev => {
+    if(!vw.ptrs.has(ev.pointerId)) return;
+    vw.ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+
+    if(vw.ptrs.size >= 2 && vw.pinch){
+      ev.preventDefault();
+      const a = [...vw.ptrs.values()];
+      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+      vZoomAt((a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2, vw.pinch.s0 * d / vw.pinch.d);
+      return;
+    }
+    if(vw.ptrs.size === 1 && vw.start){
+      const dx = ev.clientX - vw.start.x, dy = ev.clientY - vw.start.y;
+      if(vw.s > 1){
+        ev.preventDefault();
+        vw.tx = vw.start.tx + dx;
+        vw.ty = vw.start.ty + dy;
+        vClamp(); vApply();
+      }
+      if(Math.abs(dx) > 8 || Math.abs(dy) > 8) vw.moved = true;
+    }
+  });
+
+  const end = ev => {
+    if(!vw.ptrs.has(ev.pointerId)) return;
+    vw.ptrs.delete(ev.pointerId);
+    if(vw.ptrs.size < 2) vw.pinch = null;
+    if(vw.ptrs.size > 0) return;
+    const st = vw.start;
+    vw.start = null;
+    if(!st) return;
+    const dx = ev.clientX - st.x, dy = ev.clientY - st.y, dt = Date.now() - st.t;
+
+    if(!vw.moved && dt < 320){
+      const now = Date.now();
+      if(now - vw.lastTap < 300){
+        clearTimeout(vw.tapTimer); vw.lastTap = 0;          // 双击：放大 / 复位
+        if(vw.s > 1) vReset(); else vZoomAt(ev.clientX, ev.clientY, 2.5);
+      }else{
+        vw.lastTap = now;
+        vw.tapTimer = setTimeout(() => { if(vw.s === 1) closeViewer(); }, 300);
+      }
+      return;
+    }
+    if(vw.s <= 1.01 && dy > 110 && Math.abs(dx) < 90){ closeViewer(); return; }  // 下滑关闭
+    if(vw.s <= 1.001) vReset();
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('wheel', ev => {
+    if(!box.classList.contains('on')) return;
+    ev.preventDefault();
+    vZoomAt(ev.clientX, ev.clientY, vw.s * (ev.deltaY < 0 ? 1.12 : 0.89));
+  }, { passive: false });
+}
+
 /* ==================== 启动 ==================== */
 document.addEventListener('focusin', e => {
   if(['TEXTAREA','INPUT'].includes(e.target.tagName)) document.body.classList.add('kb');
@@ -1082,8 +1214,8 @@ document.addEventListener('focusout', () => {
     if(!['TEXTAREA','INPUT'].includes(t)) document.body.classList.remove('kb');
   }, 120);
 });
-$('#vclose').onclick = () => $('#viewer').classList.remove('on');
-$('#viewer').onclick = e => { if(e.target.id === 'viewer') $('#viewer').classList.remove('on'); };
+$('#vclose').onclick = () => closeViewer();
+bindViewerGestures();
 $('#back').onclick = () => showList();
 window.addEventListener('hashchange', () => { if(!location.hash) showList(); });
 

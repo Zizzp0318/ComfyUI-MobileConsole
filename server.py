@@ -1365,12 +1365,29 @@ class Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
+def _port_busy(port):
+    """Windows 下 SO_REUSEADDR 允许两个进程同时监听同一端口，
+    这时请求会随机落到其中一个，表现为「新旧页面混在一起」。启动前先探一下。"""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+            return True
+    except OSError:
+        return False
+
+
 if __name__ == "__main__":
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     API_DIR.mkdir(parents=True, exist_ok=True)
     _load_info_cache()
     _load_jobs()          # 上次没跟完的任务，重启后接着盯
     ensure_watcher()
+
+    if _port_busy(PORT):
+        print(f"[提示] 端口 {PORT} 已经有服务在跑（多半是之前那个窗口没关）。")
+        print("       同时开两个会让请求随机落到旧进程上，出现新旧页面混在一起。")
+        print("       先关掉旧窗口再启动，或改 config.json 里的 port。")
+        sys.exit(1)
+
     try:
         srv = Server((BIND, PORT), Handler)
     except OSError as e:
