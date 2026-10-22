@@ -1003,6 +1003,9 @@ word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</styl
                 if not pid:
                     return self._err(400, "缺少任务 id")
                 return self._send(200, comfy_get(f"/history/{urllib.parse.quote(pid)}"))
+            if u.path == "/api/queue":
+                # 手机端用它算排队位置和当前在跑的任务
+                return self._send(200, comfy_get("/queue"))
             if u.path == "/api/view":
                 fn = q.get("filename", [""])[0]
                 if not fn:

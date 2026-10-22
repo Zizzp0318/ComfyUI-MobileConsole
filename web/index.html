@@ -5,158 +5,270 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#0b0b0e">
+<meta name="theme-color" content="#08080d">
 <title>ComfyUI 控制台</title>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   :root{
-    --bg:#0b0b0e; --card:#17171c; --card2:#1e1e25; --line:#2a2a33;
-    --panel:#101014; --panel2:#22222b;
-    --text:#f2f2f7; --muted:#8a8a95; --accent:#6d8cff; --ok:#3ecf8e; --warn:#ffb44d;
+    --bg:#0A0A11; --text:#F2F2F7; --dim:#9A9AA8; --dim2:#767684;
+    --glass:rgba(255,255,255,.07); --glass2:rgba(255,255,255,.11);
+    --sheen:linear-gradient(160deg, rgba(255,255,255,.085), rgba(255,255,255,.028));
+    --stroke:rgba(255,255,255,.11); --stroke2:rgba(255,255,255,.2);
+    --accent:#6D8CFF; --accent2:#A78BFA; --ok:#3ECF8E; --warn:#FFB44D; --danger:#FF6B6B;
+    --r:18px; --r2:14px;
+    --blur:blur(22px) saturate(160%);
   }
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
-    font-size:16px;-webkit-font-smoothing:antialiased}
-  body{padding:env(safe-area-inset-top) 0 0}
-  header{position:sticky;top:0;z-index:20;background:rgba(11,11,14,.92);
-    border-bottom:1px solid var(--line);
-    padding:12px 16px;display:flex;align-items:center;gap:10px;min-height:52px}
-  header h1{font-size:17px;font-weight:600;margin:0;flex:1;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
-  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-  .back{background:none;border:0;color:var(--accent);font-size:16px;padding:6px 2px;
-    margin-left:-2px;cursor:pointer}
-  main{padding:12px 12px calc(132px + env(safe-area-inset-bottom))}
-  #out{scroll-margin-top:64px}
-  .grp{font-size:12px;color:var(--muted);margin:16px 6px 8px;letter-spacing:.04em}
-  .grp:first-child{margin-top:4px}
-  .item{background:var(--card);border:1px solid var(--line);border-radius:14px;
-    padding:15px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer}
-  .item:active{background:var(--card2)}
-  .item .nm{flex:1;font-size:15px;line-height:1.35;word-break:break-all}
-  .item .ar{color:var(--muted);font-size:18px;flex:none}
-  .fld{margin-bottom:14px}
-  .fld label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
-  textarea,input[type=text],input[type=number],select{
-    width:100%;background:var(--card);border:1px solid var(--line);border-radius:12px;
-    color:var(--text);font-size:16px;padding:12px;font-family:inherit;outline:none}
-  textarea{min-height:96px;resize:vertical;line-height:1.5}
-  textarea:focus,input:focus,select:focus{border-color:var(--accent)}
-  select{background-image:none;padding-right:34px;
-    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238a8a95' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat:no-repeat;background-position:right 14px center}
-  .row{display:flex;gap:10px}
-  .row>*{flex:1;min-width:0}
-  .pick{border:1px dashed var(--line);border-radius:12px;padding:14px;text-align:center;
-    color:var(--muted);font-size:14px;background:var(--card);position:relative;overflow:hidden}
-  .pick img,.pick video{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px;
-    background:#fff}
-  .pick input{position:absolute;inset:0;opacity:0;font-size:0}
-  .pick .maskbtn{position:relative;z-index:2;margin-top:4px;padding:6px 16px;border-radius:8px;
-    border:1px solid var(--line);background:var(--panel2);color:var(--text);
-    font:inherit;font-size:12px;cursor:pointer}
-  .pick .maskbtn:active{background:#2a2a36}
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;min-height:100%}
+  body{padding:env(safe-area-inset-top) 0 0;overscroll-behavior-y:none}
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(72vw 56vw at 4% -10%, rgba(109,140,255,.46), transparent 60%),
+      radial-gradient(58vw 46vw at 102% 4%, rgba(167,139,250,.38), transparent 62%),
+      radial-gradient(62vw 50vw at 88% 58%, rgba(88,116,255,.22), transparent 66%),
+      radial-gradient(96vw 60vw at 38% 110%, rgba(109,140,255,.30), transparent 72%),
+      var(--bg)}
+  .glass{background:var(--sheen);border:1px solid var(--stroke);border-radius:var(--r);
+    backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 12px 34px rgba(0,0,0,.30)}
 
-  /* ---------- 遮罩编辑器 ---------- */
-  #maskEd{position:fixed;inset:0;height:100dvh;background:#000;z-index:200;
+  header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:8px;
+    padding:10px 14px;min-height:58px;
+    background:rgba(14,14,22,.55);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    border-bottom:1px solid var(--stroke)}
+  .iconbtn{flex:none;width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+    border-radius:12px;border:1px solid var(--stroke);background:var(--glass);color:var(--text);
+    font-size:20px;line-height:1;padding:0;cursor:pointer}
+  .iconbtn:active{background:var(--glass2)}
+  .titles{flex:1;min-width:0}
+  .titles h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .titles .sub{display:block;font-size:11px;color:var(--dim2);margin-top:2px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:14px}
+  .dot{flex:none;width:9px;height:9px;border-radius:50%;background:#4a4a55;
+    box-shadow:0 0 0 3px rgba(255,255,255,.05)}
+  .dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(62,207,142,.16), 0 0 12px rgba(62,207,142,.7)}
+  .dot.bad{background:var(--danger);box-shadow:0 0 0 3px rgba(255,107,107,.14)}
+
+  main{position:relative;z-index:1;padding:14px 14px calc(128px + env(safe-area-inset-bottom))}
+  main.no-bar{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+
+  .search{display:flex;align-items:center;gap:10px;padding:0 14px;height:46px;
+    border-radius:var(--r2);margin-bottom:14px}
+  .search input{flex:1;min-width:0;background:none;border:0;outline:none;color:var(--text);
+    font:inherit;font-size:15px}
+  .search input::placeholder{color:var(--dim2)}
+  .search .ic{flex:none;width:15px;height:15px;display:block;color:var(--dim2)}
+  .search .clr{flex:none;border:0;background:none;color:var(--dim2);font-size:15px;padding:4px;cursor:pointer}
+
+  .rec{display:flex;gap:8px;overflow-x:auto;padding:2px 0 14px;margin:0 -14px;
+    padding-left:14px;padding-right:14px;scrollbar-width:none}
+  .rec::-webkit-scrollbar{display:none}
+  .chip{flex:none;max-width:60vw;padding:8px 13px;border-radius:12px;font-size:13px;
+    color:var(--text);background:var(--glass);border:1px solid var(--stroke);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  .chip:active{background:var(--glass2)}
+
+  .gh{display:flex;align-items:center;gap:8px;margin:18px 4px 10px;font-size:12px;
+    color:var(--dim);letter-spacing:.06em}
+  .gh:first-child{margin-top:2px}
+  .gh .line{flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.12),transparent)}
+  .gh .n{font-size:11px;color:var(--dim2)}
+
+  .row{display:flex;align-items:center;gap:12px;padding:15px 16px;margin-bottom:9px;
+    border-radius:var(--r2);text-align:left;width:100%;font:inherit;color:inherit;
+    background:var(--sheen);border:1px solid var(--stroke);cursor:pointer;
+    backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.09), 0 10px 26px rgba(0,0,0,.22);
+    transition:transform .12s ease, background .12s}
+  .row:active{transform:scale(.988);background:var(--glass2)}
+  .row .nm{flex:1;min-width:0}
+  .row .nm b{display:block;font-size:15px;font-weight:500;line-height:1.35;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .nm i{display:block;font-style:normal;font-size:11px;color:var(--dim2);margin-top:3px}
+  .row .ar{flex:none;color:var(--dim2);font-size:20px;line-height:1}
+
+  .sec{margin-bottom:14px;overflow:hidden}
+  .sec .hd{display:flex;align-items:center;gap:9px;padding:14px 16px 0}
+  .sec .hd .bar{width:3px;height:13px;border-radius:2px;background:var(--accent);flex:none}
+  .sec .hd h2{margin:0;font-size:13px;font-weight:500;color:var(--dim);letter-spacing:.04em;flex:1}
+  .sec .hd .act{border:0;background:none;color:var(--accent);font:inherit;font-size:12px;padding:2px 0;cursor:pointer}
+  .sec .bd{padding:12px 16px 16px}
+
+  .fld{margin-bottom:14px}
+  .fld:last-child{margin-bottom:0}
+  .fld label{display:block;font-size:12px;color:var(--dim);margin-bottom:7px}
+  textarea,input[type=text],input[type=number],select{
+    width:100%;background:rgba(0,0,0,.24);border:1px solid var(--stroke);border-radius:13px;
+    color:var(--text);font-size:16px;padding:12px 13px;font-family:inherit;outline:none;
+    transition:border-color .15s, box-shadow .15s}
+  textarea{min-height:104px;resize:vertical;line-height:1.55}
+  textarea:focus,input:focus,select:focus{border-color:rgba(109,140,255,.65);
+    box-shadow:0 0 0 3px rgba(109,140,255,.16)}
+  select{appearance:none;-webkit-appearance:none;padding-right:36px;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%239A9AA8' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 14px center}
+
+  .pick{position:relative;border:1px dashed var(--stroke2);border-radius:var(--r2);
+    min-height:112px;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    gap:6px;background:rgba(255,255,255,.03);overflow:hidden;padding:12px}
+  .pick .ph{font-size:13px;color:var(--dim)}
+  .pick .plus{font-size:24px;color:var(--dim2);line-height:1}
+  .pick img,.pick video{max-width:100%;max-height:200px;border-radius:12px;display:block}
+  .pick input[type=file]{position:absolute;inset:0;opacity:0;font-size:0;cursor:pointer}
+  .pick .tools{display:flex;gap:8px;margin-top:10px;position:relative;z-index:2}
+  .pick .tools button{border:1px solid var(--stroke);background:var(--glass2);color:var(--text);
+    font:inherit;font-size:12px;padding:7px 13px;border-radius:10px;cursor:pointer}
+  .pick .tools button:active{background:rgba(255,255,255,.16)}
+  .pick .badge{position:absolute;left:10px;top:10px;z-index:2;font-size:11px;color:var(--dim);
+    background:rgba(0,0,0,.5);padding:3px 8px;border-radius:8px}
+
+  .ratios{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+  .ratio{display:flex;flex-direction:column;align-items:center;gap:7px;padding:11px 4px 9px;
+    border-radius:13px;border:1px solid var(--stroke);background:rgba(255,255,255,.03);
+    color:var(--dim);font-size:11px;cursor:pointer;transition:.15s;font-family:inherit}
+  .ratio .box{width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+  .ratio .box i{display:block;border-radius:3px;border:1.5px solid currentColor;opacity:.85}
+  .ratio.on{color:#fff;border-color:rgba(109,140,255,.7);
+    background:rgba(109,140,255,.16);box-shadow:0 0 0 3px rgba(109,140,255,.1) inset}
+
+  .sw{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 13px;border-radius:13px;background:rgba(255,255,255,.03);
+    border:1px solid var(--stroke)}
+  .sw span{font-size:14px;color:var(--dim)}
+  .sw input{width:46px;height:27px;appearance:none;-webkit-appearance:none;border-radius:14px;
+    background:rgba(255,255,255,.14);position:relative;transition:.18s;flex:none;cursor:pointer;margin:0}
+  .sw input::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;
+    border-radius:50%;background:#fff;transition:.18s}
+  .sw input:checked{background:var(--accent)}
+  .sw input:checked::after{left:22px}
+
+  details.adv{border-radius:var(--r);overflow:hidden;margin-bottom:14px}
+  details.adv>summary{list-style:none;cursor:pointer;padding:14px 16px;display:flex;
+    align-items:center;gap:9px;font-size:13px;color:var(--dim)}
+  details.adv>summary::-webkit-details-marker{display:none}
+  details.adv>summary .cnt{font-size:11px;color:var(--dim2)}
+  details.adv>summary .car{margin-left:auto;transition:transform .18s;color:var(--dim2)}
+  details.adv[open]>summary .car{transform:rotate(90deg)}
+  details.adv .bd{padding:0 16px 16px}
+
+  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:30;
+    padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+    background:rgba(10,10,16,.72);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    border-top:1px solid var(--stroke);transition:transform .2s ease}
+  body.kb .runbar{transform:translateY(130%)}
+  .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);
+    min-height:18px;margin-bottom:8px;padding:0 2px}
+  .status.hide{display:none}
+  .status .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.16);
+    border-top-color:var(--accent);border-radius:50%;animation:sp .75s linear infinite;flex:none}
+  .status b{color:var(--text);font-weight:500}
+  .status .jump{margin-left:auto;color:var(--accent);font-size:12px;background:none;border:0;cursor:pointer}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  .btn{width:100%;border:0;border-radius:15px;padding:16px;font-size:17px;font-weight:600;
+    color:#fff;background:var(--accent);cursor:pointer;letter-spacing:.02em;
+    background-image:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0));
+    box-shadow:0 8px 26px rgba(109,140,255,.34), inset 0 1px 0 rgba(255,255,255,.22);
+    transition:transform .12s, opacity .15s;font-family:inherit}
+  .btn:active{transform:scale(.99)}
+  .btn:disabled{opacity:.5;box-shadow:none}
+  .btn.stop{background:rgba(255,107,107,.16);color:#FF9B9B;
+    border:1px solid rgba(255,107,107,.35);box-shadow:none;background-image:none}
+
+  .results{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .results.single{grid-template-columns:1fr}
+  .results .cell{position:relative;border-radius:var(--r2);overflow:hidden;background:rgba(0,0,0,.35);
+    border:1px solid var(--stroke)}
+  .results img,.results video{width:100%;display:block;height:100%;object-fit:cover}
+  .results.single img,.results.single video{object-fit:contain;max-height:62dvh}
+  .results .cell .zoom{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.55);
+    color:#fff;font-size:11px;padding:4px 8px;border-radius:8px;backdrop-filter:blur(6px)}
+  .meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim2);
+    margin:2px 2px 10px;flex-wrap:wrap}
+  .meta .ok{color:var(--ok)}
+  .meta button{margin-left:auto;background:none;border:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer}
+
+  .err{background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.3);color:#FFB3B3;
+    border-radius:var(--r2);padding:13px 14px;font-size:13px;line-height:1.55;
+    white-space:pre-wrap;word-break:break-all}
+  .empty{color:var(--dim2);text-align:center;padding:56px 24px;font-size:14px;line-height:1.8}
+  .hint{color:var(--dim2);font-size:12px;text-align:center;margin:12px 0 0}
+
+  .viewer{position:fixed;inset:0;height:100dvh;background:rgba(0,0,0,.92);z-index:100;
+    display:none;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+  .viewer.on{display:flex}
+  .viewer img{max-width:100vw;max-height:100dvh;object-fit:contain}
+  .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;
+    color:#fff;font-size:13px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);
+    border-radius:20px;padding:8px 16px;backdrop-filter:blur(10px)}
+
+  .toast{position:fixed;left:50%;bottom:calc(112px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(8px);background:rgba(28,28,38,.9);
+    backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+    border:1px solid var(--stroke2);color:#fff;padding:11px 18px;border-radius:14px;
+    font-size:13px;opacity:0;transition:.2s;pointer-events:none;z-index:60;max-width:82%}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  #maskEd{position:fixed;inset:0;height:100dvh;background:#05050a;z-index:200;
     display:none;flex-direction:column}
   #maskEd.on{display:flex}
-  .me-top{flex:none;padding:calc(8px + env(safe-area-inset-top)) 12px 8px 16px;
-    display:flex;align-items:center;border-bottom:1px solid var(--line);
-    color:var(--text);font-size:14px;min-height:44px}
-  .me-top .hint{color:var(--muted);font-size:12px;margin-left:10px;cursor:pointer;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .me-top .close{margin-left:auto;flex:none;background:none;border:0;color:var(--muted);
-    font-size:26px;line-height:1;cursor:pointer;padding:0;width:44px;height:44px;
-    display:flex;align-items:center;justify-content:center;border-radius:10px}
-  .me-top .close:active{background:rgba(255,255,255,.12);color:#fff}
-  .me-stage{flex:1;display:flex;align-items:center;justify-content:center;
-    overflow:hidden;padding:10px;min-height:0;touch-action:none}
-  .me-wrap{position:relative;display:inline-block;max-width:100%;max-height:100%;
-    transform-origin:50% 50%;will-change:transform}
-  .me-wrap img{display:block;max-width:100%;max-height:calc(100dvh - 210px);
-    width:auto;height:auto;border-radius:6px}
-  .me-wrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;
-    opacity:.5;touch-action:none;cursor:crosshair}
+  .me-top{flex:none;padding:calc(10px + env(safe-area-inset-top)) 12px 10px 16px;
+    display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--stroke);
+    background:rgba(10,10,16,.7);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
+  .me-top .t{font-size:14px}
+  .me-top .hint{margin-left:auto;color:var(--dim2);font-size:11px;max-width:52%;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;text-align:right}
+  .me-top .close{flex:none;background:none;border:0;color:var(--dim);font-size:24px;line-height:1;
+    width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:10px}
+  .me-top .close:active{background:rgba(255,255,255,.1)}
+  .me-stage{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;
+    padding:10px;min-height:0;touch-action:none}
+  .me-wrap{position:relative;display:inline-block;max-width:100%;max-height:100%;will-change:transform}
+  .me-wrap img{display:block;max-width:100%;max-height:calc(100dvh - 210px);width:auto;height:auto;
+    border-radius:8px}
+  .me-wrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;opacity:.55;
+    touch-action:none;cursor:crosshair}
   .me-bar{flex:none;padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-    display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);
-    background:var(--panel)}
+    display:flex;align-items:center;gap:8px;border-top:1px solid var(--stroke);
+    background:rgba(10,10,16,.72);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}
   .me-bar input[type=range]{flex:1;min-width:50px;accent-color:var(--accent)}
-  .me-bar .tool{width:42px;height:36px;border-radius:8px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--text);font-size:16px;cursor:pointer;flex:none}
-  .me-bar .tool.on{background:var(--accent);border-color:var(--accent);color:#fff}
-  .me-bar .txt{padding:0 12px;height:36px;border-radius:8px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--text);font:inherit;font-size:13px;
-    cursor:pointer;flex:none}
-  .me-bar .ok{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
-  details{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
-  summary{color:var(--muted);font-size:14px;cursor:pointer;list-style:none;padding:4px 0}
-  summary::-webkit-details-marker{display:none}
-  summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
-  details[open] summary::before{content:"▾ "}
-  .sw{display:flex;align-items:center;justify-content:space-between;
-    background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
-  .sw input{width:22px;height:22px;accent-color:var(--accent)}
-  .runbar{position:fixed;left:0;right:0;bottom:0;z-index:30;
-    padding:10px 12px calc(10px + env(safe-area-inset-bottom));
-    background:rgba(11,11,14,.96);border-top:1px solid var(--line);
-    transition:transform .18s ease}
-  body.kb .runbar{transform:translateY(130%)}
-  .runstat{display:none;font-size:12px;color:var(--muted);text-align:center;
-    margin:0 0 7px;min-height:15px;line-height:15px}
-  .runstat.on{display:block}
-  .runstat b{color:var(--text);font-weight:500}
-  .btn{width:100%;border:0;border-radius:14px;padding:16px;font-size:17px;font-weight:600;
-    color:#fff;background:var(--accent);cursor:pointer}
-  .btn:disabled{opacity:.45}
-  .btn.ghost{background:var(--card);color:var(--text);border:1px solid var(--line)}
-  .res{display:flex;flex-direction:column;gap:10px;margin-top:14px}
-  .res img,.res video{width:100%;height:auto;max-height:calc(100dvh - 230px);
-    object-fit:contain;border-radius:12px;display:block;background:var(--card)}
-  .stat{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px;margin:14px 2px}
-  .spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);
-    border-radius:50%;animation:sp .8s linear infinite;flex:none}
-  @keyframes sp{to{transform:rotate(360deg)}}
-  .tip{color:var(--muted);font-size:12px;text-align:center;margin:10px 0 0}
-  .err{background:#2a1416;border:1px solid #5b2429;color:#ff9a9a;border-radius:12px;
-    padding:12px;font-size:13px;line-height:1.5;margin-top:12px;white-space:pre-wrap;word-break:break-all}
-  .empty{color:var(--muted);text-align:center;padding:60px 20px;font-size:14px;line-height:1.7}
-  .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:#2b2b34;
-    color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;opacity:0;
-    transition:opacity .2s;pointer-events:none;z-index:50;max-width:80%}
-  .toast.show{opacity:1}
-  .viewer{position:fixed;inset:0;height:100dvh;background:#000;z-index:100;display:none;
-    align-items:center;justify-content:center;padding:0}
-  .viewer.on{display:flex}
-  .viewer img,.viewer video{max-width:100vw;max-height:100dvh;width:auto;height:auto;
-    object-fit:contain;border-radius:0}
-  .viewer .close{position:absolute;top:calc(env(safe-area-inset-top) + 12px);right:16px;
-    color:#fff;font-size:15px;background:rgba(255,255,255,.16);border:0;border-radius:18px;
-    padding:8px 16px}
-  .res img{cursor:zoom-in}
+  .me-bar .tool{width:42px;height:36px;border-radius:10px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.06);color:var(--text);font-size:15px;flex:none}
+  .me-bar .tool.on{background:rgba(109,140,255,.9);border-color:transparent;color:#fff}
+  .me-bar .txt{padding:0 13px;height:36px;border-radius:10px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.06);color:var(--text);font:inherit;font-size:13px;flex:none}
+  .me-bar .ok{background:var(--accent);border-color:transparent;color:#fff;font-weight:500}
 </style>
 </head>
 <body>
+<div class="ambient"></div>
+
 <header>
-  <button class="back" id="back" style="display:none">返回</button>
-  <h1 id="title">ComfyUI 控制台</h1>
-  <span class="dot" id="dot"></span>
+  <button class="iconbtn" id="back" style="display:none" aria-label="返回">‹</button>
+  <div class="titles"><h1 id="title">工作流</h1><span class="sub" id="sub"></span></div>
+  <span class="dot" id="dot" title="ComfyUI"></span>
 </header>
-<main id="app"><div class="empty">加载中…</div></main>
+
+<main id="view"><div class="empty">加载中…</div></main>
+
+<div class="runbar" id="runbar" style="display:none">
+  <div class="status hide" id="status"><span class="spin"></span><span id="stxt">准备中</span>
+    <button class="jump" id="jump" style="display:none">看结果</button></div>
+  <button class="btn" id="run">运行</button>
+</div>
+
 <div class="viewer" id="viewer"><button class="close" id="vclose">关闭</button><img id="vimg" alt=""></div>
 
 <div id="maskEd">
   <div class="me-top">
-    <span>涂抹要重绘的区域</span>
-    <span class="hint" id="meReset">红色=重绘区 · 双指缩放，点此复位</span>
+    <span class="t">涂抹重绘区域</span>
+    <span class="hint" id="meReset">红色=重绘 · 双指缩放 · 点此复位</span>
     <button class="close" id="meClose" type="button">×</button>
   </div>
   <div class="me-stage">
-    <div class="me-wrap">
-      <img id="meImg" alt="">
-      <canvas id="meCanvas"></canvas>
-    </div>
+    <div class="me-wrap"><img id="meImg" alt=""><canvas id="meCanvas"></canvas></div>
   </div>
   <div class="me-bar">
     <button class="tool on" id="meBrush" type="button" title="画笔">✎</button>
@@ -170,13 +282,18 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const $ = (s) => document.querySelector(s);
-const app = $('#app');
-let state = { list: [], cur: null, values: {}, polling: null };
+const $ = s => document.querySelector(s);
+const app = $('#view');
+const state = { list: [], cur: null, values: {}, maskSrc: {}, polling: null, running: false, pid: null };
+
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
 
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 1800);
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove('show'), 1900);
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function api(path, opt){
@@ -187,177 +304,511 @@ function api(path, opt){
     return d;
   });
 }
+function viewUrl(f, extra){
+  let q = `/api/view?filename=${encodeURIComponent(f.filename)}&subfolder=${encodeURIComponent(f.subfolder||'')}&type=${encodeURIComponent(f.type||'output')}`;
+  if(extra !== false) q += `&t=${Date.now()}`;
+  return q;
+}
+function isVideo(name){ return ['mp4','webm','mov'].includes((String(name).split('.').pop()||'').toLowerCase()); }
 
 async function health(){
-  try { await api('/api/health'); $('#dot').classList.add('on'); }
-  catch(e){ $('#dot').classList.remove('on'); }
+  try { await api('/api/health'); $('#dot').className = 'dot on'; }
+  catch(e){ $('#dot').className = 'dot bad'; }
+}
+
+/* ==================== 列表 ==================== */
+function recentList(){ return LS.get('recent', []); }
+function pushRecent(item){
+  let list = recentList().filter(x => x.id !== item.id);
+  list.unshift({ id: item.id, name: item.name, ts: Date.now() });
+  LS.set('recent', list.slice(0, 8));
 }
 
 async function showList(){
   location.hash = '';
+  state.cur = null; stopPoll();
   $('#back').style.display = 'none';
-  $('#title').textContent = '选择工作流';
-  stopPoll();
-  try {
+  $('#title').textContent = '工作流';
+  $('#sub').textContent = '';
+  $('#runbar').style.display = 'none';
+  app.classList.add('no-bar');
+  try{
     const d = await api('/api/workflows');
-    if(!d.items.length){ app.innerHTML = '<div class="empty">还没有 API 格式的工作流<br>把导出的 json 放进 api_workflows 目录</div>'; return; }
-    const groups = {};
-    d.items.forEach(it => (groups[it.category] = groups[it.category] || []).push(it));
-    let h = '';
-    for(const cat of Object.keys(groups)){
-      if(cat) h += `<div class="grp">${esc(cat)}</div>`;
-      for(const it of groups[cat]){
-        h += `<div class="item" data-id="${esc(it.id)}"><div class="nm">${esc(it.name)}</div><div class="ar">›</div></div>`;
-      }
-    }
-    app.innerHTML = h;
-    app.querySelectorAll('.item').forEach(el => {
-      el.onclick = () => openWorkflow(el.dataset.id);
-    });
-  } catch(e){
-    app.innerHTML = `<div class="empty">连不上控制台服务<br><span style="color:#ff9a9a">${esc(e.message)}</span></div>`;
+    state.list = d.items;
+    renderList();
+  }catch(e){
+    app.innerHTML = `<div class="empty">连不上控制台服务<br><span style="color:#FF9B9B">${esc(e.message)}</span></div>`;
   }
 }
 
+function renderList(filter){
+  const all = state.list;
+  const q = (filter || '').trim().toLowerCase();
+  const hit = q ? all.filter(it => (it.name + ' ' + it.category).toLowerCase().includes(q)) : all;
+  const recents = recentList().filter(r => all.some(a => a.id === r.id));
+
+  let h = `<div class="search glass">
+    <svg class="ic" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M11 11l3.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <input id="q" type="text" placeholder="搜索工作流或分类" value="${esc(filter || '')}" />
+    <button class="clr" id="qc" style="display:${q ? 'block' : 'none'}">✕</button></div>`;
+
+  if(!q && recents.length){
+    h += `<div class="gh"><span>最近使用</span><span class="line"></span></div>
+      <div class="rec">` + recents.map(r =>
+        `<button class="chip" data-open="${esc(r.id)}">${esc(r.name)}</button>`).join('') + `</div>`;
+  }
+
+  if(!hit.length){
+    h += `<div class="empty">${all.length ? '没有匹配的工作流' : '还没有 API 格式的工作流<br>把导出的 json 放进 api_workflows 目录'}</div>`;
+  }else{
+    const groups = new Map();
+    hit.forEach(it => {
+      const k = it.category || '未分类';
+      if(!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(it);
+    });
+    for(const [cat, arr] of groups){
+      h += `<div class="gh"><span>${esc(cat)}</span><span class="n">${arr.length}</span><span class="line"></span></div>`;
+      for(const it of arr){
+        h += `<button class="row" data-open="${esc(it.id)}">
+          <span class="nm"><b>${esc(it.name)}</b><i>${esc(cat)}</i></span>
+          <span class="ar">›</span></button>`;
+      }
+    }
+  }
+  app.innerHTML = h;
+
+  const inp = $('#q');
+  if(inp){
+    inp.oninput = () => {
+      const v = inp.value, pos = v.length;
+      renderList(v);
+      const ni = $('#q');
+      if(ni){ ni.focus(); try{ ni.setSelectionRange(pos, pos); }catch(e){} }
+    };
+  }
+  const clr = $('#qc');
+  if(clr) clr.onclick = () => renderList('');
+  app.querySelectorAll('[data-open]').forEach(el => {
+    el.onclick = () => openWorkflow(el.dataset.open);
+  });
+}
+
+/* ==================== 表单 ==================== */
 async function openWorkflow(id){
   stopPoll();
   $('#title').textContent = '加载中…';
+  $('#sub').textContent = '';
   app.innerHTML = '<div class="empty">读取工作流参数…</div>';
   try{
     const d = await api('/api/workflow/' + encodeURIComponent(id));
-    state.cur = d; state.values = {}; state.maskSrc = {};
+    state.cur = d;
+    state.values = {};
+    state.maskSrc = {};
+    const saved = LS.get('vals:' + d.id, {});
+    for(const p of d.params.primary.concat(d.params.advanced)){
+      if(p.kind === 'image' || p.kind === 'video') continue;
+      if(saved[p.key] !== undefined) state.values[p.key] = saved[p.key];
+    }
     $('#title').textContent = d.title || id.split('/').pop().replace('.api.json','');
-    $('#back').style.display = 'block';
+    $('#sub').textContent = (d.params.primary.length + d.params.advanced.length) + ' 个参数' +
+      (d.params.advanced.length ? ' · 高级可展开' : '');
+    $('#back').style.display = 'flex';
+    app.classList.remove('no-bar');
+    pushRecent({ id: d.id, name: d.title || d.id });
     renderForm();
     location.hash = 'wf';
     localStorage.setItem('lastWf', d.id || id);
-  } catch(e){
+  }catch(e){
     app.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
 }
 
-function fieldHtml(p){
+function fldHtml(p, skipLabel){
   const k = esc(p.key);
-  let inner = '';
+  const v = state.values[p.key] !== undefined ? state.values[p.key] : p.value;
+  const lab = skipLabel ? '' : `<label>${esc(p.label)}</label>`;
+  let inner;
   if(p.kind === 'image' || p.kind === 'video'){
     const isVid = p.kind === 'video';
     const acc = p.accept || (isVid ? 'video/*' : 'image/*');
+    const file = state.values[p.key];
+    let shown;
+    if(file){
+      shown = isVid
+        ? `<video class="preview" src="/api/view?filename=${encodeURIComponent(file)}&type=input&t=${Date.now()}" muted playsinline controls></video>`
+        : `<img class="preview" src="/api/view?filename=${encodeURIComponent(file)}&type=input&t=${Date.now()}" alt="">`;
+    }else{
+      shown = `<span class="plus">＋</span><span class="ph">点击选择${isVid ? '视频' : '图片'}</span>`;
+    }
+    const tools = file
+      ? `<div class="tools">
+          ${isVid ? '' : `<button data-mask="${k}" type="button">画遮罩</button>`}
+          <button data-clear="${k}" type="button">清除</button></div>`
+      : '';
     inner = `<div class="pick" data-pick="${k}">
-        <div class="ph">点击选择${isVid ? '视频' : '图片'}</div>
-        <input type="file" accept="${acc}" data-img="${k}" data-kind="${p.kind}">
+        ${file ? '<span class="badge">已上传</span>' : ''}
+        ${shown}${tools}
+        <input type="file" accept="${esc(acc)}" data-img="${k}" data-kind="${esc(p.kind)}">
       </div>`;
-  } else if(p.kind === 'select'){
-    const opts = (p.choices||[]).map(c => `<option value="${esc(c)}"${String(c)===String(p.value)?' selected':''}>${esc(c)}</option>`).join('');
+  }else if(p.kind === 'select'){
+    const opts = (p.choices||[]).map(c =>
+      `<option value="${esc(c)}"${String(c)===String(v)?' selected':''}>${esc(c)}</option>`).join('');
     inner = `<select data-v="${k}">${opts}</select>`;
-  } else if(p.kind === 'toggle'){
-    inner = `<div class="sw"><span style="font-size:14px;color:var(--muted)">${esc(p.label)}</span>
-      <input type="checkbox" data-v="${k}"${p.value?' checked':''}></div>`;
-    return `<div class="fld" data-fld="${k}">${inner}</div>`;
-  } else if(p.kind === 'number'){
-    inner = `<input type="number" inputmode="decimal" data-v="${k}" value="${esc(p.value)}" step="any">`;
-  } else {
-    const isPrompt = p.group === 'prompt' || p.multiline;
-    inner = isPrompt
-      ? `<textarea data-v="${k}" placeholder="在这里输入提示词…">${esc(p.value)}</textarea>`
-      : `<input type="text" data-v="${k}" value="${esc(p.value)}">`;
+  }else if(p.kind === 'toggle'){
+    return `<div class="fld" data-fld="${k}"><div class="sw"><span>${esc(p.label)}</span>
+      <input type="checkbox" data-v="${k}"${(v === true || String(v).toLowerCase() === 'true') ? ' checked' : ''}></div></div>`;
+  }else if(p.kind === 'number'){
+    inner = `<input type="number" inputmode="decimal" step="any" data-v="${k}" value="${esc(v)}">`;
+  }else if(p.multiline || p.group === 'prompt'){
+    inner = `<textarea data-v="${k}" placeholder="描述你想要的画面…">${esc(v)}</textarea>`;
+  }else{
+    inner = `<input type="text" data-v="${k}" value="${esc(v)}">`;
   }
-  return `<div class="fld" data-fld="${k}"><label>${esc(p.label)}</label>${inner}</div>`;
+  return `<div class="fld" data-fld="${k}">${lab}${inner}</div>`;
+}
+
+function isRatioField(p){
+  if(p.kind !== 'select' || !p.choices || !p.choices.length) return false;
+  const hit = p.choices.filter(c => /^\s*\d+\s*:\s*\d+/.test(String(c)));
+  return hit.length >= 3 && hit.length === p.choices.length;
+}
+
+function ratioGrid(p){
+  const k = esc(p.key);
+  const v = state.values[p.key] !== undefined ? state.values[p.key] : p.value;
+  const cells = p.choices.map(c => {
+    const m = String(c).match(/^\s*(\d+)\s*:\s*(\d+)/);
+    const a = Math.max(1, +m[1]), b = Math.max(1, +m[2]);
+    const w = Math.round(30 * a / Math.max(a, b)), hh = Math.round(30 * b / Math.max(a, b));
+    return `<button type="button" class="ratio${String(c)===String(v)?' on':''}"
+      data-ratio="${k}" data-val="${esc(c)}">
+      <span class="box"><i style="width:${w}px;height:${hh}px"></i></span>
+      <span>${esc(m[1])}:${esc(m[2])}</span></button>`;
+  }).join('');
+  return `<div class="fld" data-fld="${k}"><label>${esc(p.label)}</label>
+    <div class="ratios" data-rg="${k}">${cells}</div></div>`;
+}
+
+function section(title, bodyHtml, action){
+  return `<section class="sec glass"><div class="hd"><span class="bar"></span><h2>${esc(title)}</h2>
+    ${action || ''}</div><div class="bd">${bodyHtml}</div></section>`;
 }
 
 function renderForm(){
   const d = state.cur;
-  let h = '';
-  for(const p of d.params.primary) h += fieldHtml(p);
-  if(d.params.advanced.length){
-    h += '<details><summary>高级参数（' + d.params.advanced.length + '）</summary>';
-    for(const p of d.params.advanced) h += fieldHtml(p);
-    h += '</details>';
-  }
-  h += `<div class="runbar"><div class="runstat" id="runstat"></div>
-        <button class="btn" id="run">运行</button></div>
-        <div id="out"></div>`;
-  app.innerHTML = h;
+  const P = d.params.primary, A = d.params.advanced;
+  const prompts = P.filter(p => p.group === 'prompt' && p.kind === 'text');
+  const images = P.filter(p => p.kind === 'image' || p.kind === 'video');
+  const sizes = P.filter(p => (p.group === 'size' || p.group === 'seed') && !images.includes(p));
+  const used = new Set([...prompts, ...images, ...sizes]);
+  const others = P.filter(p => !used.has(p));
 
-  app.querySelectorAll('[data-v]').forEach(el=>{
+  let h = '';
+
+  if(prompts.length || others.some(p => p.group === 'prompt')){
+    const onlyOne = prompts.length === 1 && !others.some(p => p.group === 'prompt');
+    const body = prompts.map(p => fldHtml(p, onlyOne)).join('') +
+      others.filter(p => p.group === 'prompt').map(p => fldHtml(p)).join('');
+    const changed = prompts.some(p => String(state.values[p.key]||'') !== String(p.value||''));
+    h += section('提示词', body,
+      changed ? '<button class="act" data-act="clearprompt" type="button">清空</button>'
+              : '<button class="act" data-act="copyprompt" type="button">复制</button>');
+  }
+
+  if(images.length) h += section('参考素材', images.map(p => fldHtml(p)).join(''));
+
+  if(sizes.length){
+    h += section('画面与种子', sizes.map(p => isRatioField(p) ? ratioGrid(p) : fldHtml(p)).join(''));
+  }
+
+  const rest = others.filter(p => p.group !== 'prompt');
+  if(rest.length) h += section('其他参数', rest.map(p => fldHtml(p)).join(''));
+
+  if(A.length){
+    h += `<details class="adv glass" ${A.length <= 6 ? 'open' : ''}>
+      <summary><span style="width:3px;height:13px;border-radius:2px;background:var(--accent2);flex:none"></span>
+      高级参数<span class="cnt">${A.length} 项</span><span class="car">›</span></summary>
+      <div class="bd">${A.map(p => fldHtml(p)).join('')}</div></details>`;
+  }
+
+  const last = LS.get('job:' + d.id, null);
+  h += `<div id="out">${last ? resultBlock(last, false) : ''}</div>`;
+
+  app.innerHTML = h;
+  bindForm();
+  $('#runbar').style.display = 'block';
+  const btn = $('#run');
+  btn.textContent = '运行'; btn.className = 'btn'; btn.disabled = false;
+  setStatus('', false);
+  $('#jump').style.display = last ? 'inline' : 'none';
+  if(!last) window.scrollTo({ top: 0 });
+}
+
+function bindForm(){
+  app.querySelectorAll('[data-v]').forEach(el => {
     const k = el.dataset.v;
-    const sync = ()=>{
+    const sync = () => {
       state.values[k] = el.type === 'checkbox' ? el.checked : el.value;
+      persistValues();
     };
     sync();
     el.addEventListener('input', sync);
     el.addEventListener('change', sync);
     if(el.tagName === 'TEXTAREA'){
-      const fit = ()=>{ el.style.height='auto'; el.style.height = Math.min(el.scrollHeight, 360)+'px'; };
+      const fit = () => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 400) + 'px'; };
       el.addEventListener('input', fit); setTimeout(fit, 30);
     }
   });
 
-  app.querySelectorAll('[data-img]').forEach(inp=>{
-    inp.addEventListener('change', async ()=>{
-      const f = inp.files[0]; if(!f) return;
-      const k = inp.dataset.img;
-      const kind = inp.dataset.kind || 'image';
-      const box = app.querySelector(`[data-pick="${k}"]`);
-      const ph = box.querySelector('.ph');
-      if(ph) ph.textContent = '上传中…';
-      try{
-        const r = await fetch('/api/upload', {
-          method:'POST', headers:{'X-Filename': encodeURIComponent(f.name)}, body: f
-        });
-        const d = await r.json();
-        if(!r.ok) throw new Error(d.error || '上传失败');
-        state.values[k] = d.name;
-        state.maskSrc = state.maskSrc || {};
-        state.maskSrc[k] = d.name;
-        if(kind === 'video'){
-          let vid = box.querySelector('video.preview');
-          if(!vid){
-            vid = document.createElement('video');
-            vid.className = 'preview';
-            vid.controls = true; vid.muted = true; vid.playsInline = true;
-            box.insertBefore(vid, box.firstChild);
-          }
-          vid.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
-        }else{
-          ensureMaskBtn(box, k);
-          let img = box.querySelector('img.preview');
-          if(!img){
-            img = document.createElement('img');
-            img.className = 'preview';
-            box.insertBefore(img, box.firstChild);
-          }
-          img.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
-        }
-        if(ph) ph.textContent = '点击可更换';
-        toast(kind === 'video' ? '视频已上传' : '图片已上传');
-      }catch(e){
-        if(ph) ph.textContent = '上传失败，点击重试';
-        toast(e.message);
-      }
-      inp.value = '';
-    });
+  app.querySelectorAll('[data-ratio]').forEach(b => {
+    b.onclick = () => {
+      const k = b.dataset.ratio;
+      state.values[k] = b.dataset.val;
+      persistValues();
+      app.querySelectorAll('[data-rg="' + k + '"] .ratio').forEach(x => x.classList.toggle('on', x === b));
+    };
   });
 
-  /* ================= 遮罩编辑器 ================= */
-  setupMaskEditor();
+  app.querySelectorAll('[data-img]').forEach(inp => {
+    inp.addEventListener('change', () => uploadImage(inp));
+  });
+  app.querySelectorAll('[data-mask]').forEach(b => {
+    b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); openMaskEditor(b.dataset.mask); };
+  });
+  app.querySelectorAll('[data-clear]').forEach(b => {
+    b.onclick = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const k = b.dataset.clear;
+      delete state.values[k]; delete state.maskSrc[k];
+      persistValues(); renderForm();
+    };
+  });
 
-  $('#run').onclick = run;
-  window.scrollTo({top:0});
+  const cp = app.querySelector('[data-act="clearprompt"]');
+  if(cp) cp.onclick = () => {
+    state.cur.params.primary.filter(p => p.group === 'prompt').forEach(p => state.values[p.key] = '');
+    persistValues(); renderForm(); toast('提示词已清空');
+  };
+  const cp2 = app.querySelector('[data-act="copyprompt"]');
+  if(cp2) cp2.onclick = async () => {
+    const p = state.cur.params.primary.find(x => x.group === 'prompt');
+    try{ await navigator.clipboard.writeText(String(state.values[p.key] || '')); toast('已复制'); }
+    catch(e){ toast('复制失败'); }
+  };
+
+  $('#run').onclick = () => state.running ? stopRun() : doRun();
+  $('#jump').onclick = () => $('#out').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
+function persistValues(){
+  const d = state.cur; if(!d) return;
+  const media = new Set(d.params.primary.concat(d.params.advanced)
+    .filter(p => p.kind === 'image' || p.kind === 'video').map(p => p.key));
+  const clean = {};
+  for(const [k, v] of Object.entries(state.values)){
+    if(media.has(k)) continue;
+    clean[k] = v;
+  }
+  clearTimeout(persistValues._t);
+  persistValues._t = setTimeout(() => LS.set('vals:' + d.id, clean), 400);
+}
+
+async function uploadImage(inp){
+  const f = inp.files && inp.files[0]; if(!f) return;
+  const k = inp.dataset.img, kind = inp.dataset.kind || 'image';
+  const box = app.querySelector('[data-pick="' + k + '"]');
+  const ph = box && box.querySelector('.ph');
+  if(ph) ph.textContent = '上传中…';
+  try{
+    const r = await fetch('/api/upload', {
+      method:'POST', headers:{ 'X-Filename': encodeURIComponent(f.name) }, body: f
+    });
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || '上传失败');
+    state.values[k] = d.name;
+    state.maskSrc[k] = d.name;
+    persistValues();
+    renderForm();
+    toast(kind === 'video' ? '视频已上传' : '图片已上传');
+  }catch(e){
+    if(ph) ph.textContent = '上传失败，点击重试';
+    toast(e.message);
+  }
+  inp.value = '';
+}
+
+/* ==================== 运行 ==================== */
+function setStatus(html, on){
+  const s = $('#status');
+  if(!s) return;
+  s.classList.toggle('hide', !on);
+  if(on) $('#stxt').innerHTML = html;
+}
+
+async function doRun(){
+  const d = state.cur;
+  const miss = d.params.primary.filter(p =>
+    (p.kind === 'image' || p.kind === 'video') && !state.values[p.key]);
+  if(miss.length){
+    toast(miss[0].kind === 'video' ? '请先选一个视频' : '请先选一张图片');
+    return;
+  }
+  const btn = $('#run');
+  btn.disabled = true; btn.textContent = '提交中…';
+  $('#out').innerHTML = '';
+  setStatus('', false);
+  try{
+    const res = await api('/api/run', {
+      method:'POST', headers:{ 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: d.id, values: state.values })
+    });
+    if(res.node_errors && Object.keys(res.node_errors).length){
+      throw new Error('工作流校验失败：\n' + JSON.stringify(res.node_errors, null, 1).slice(0, 500));
+    }
+    state.running = true; state.pid = res.prompt_id;
+    btn.disabled = false; btn.textContent = '停止'; btn.className = 'btn stop';
+    poll(res.prompt_id);
+  }catch(e){
+    $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    btn.disabled = false; btn.textContent = '运行'; btn.className = 'btn';
+  }
+}
+
+async function stopRun(){
+  const btn = $('#run');
+  btn.disabled = true; btn.textContent = '正在停止…';
+  try{
+    await api('/api/interrupt', { method:'POST' });
+    stopPoll();
+    state.running = false;
+    btn.disabled = false; btn.textContent = '重新运行'; btn.className = 'btn';
+    setStatus('', false);
+    toast('已中断任务');
+  }catch(e){
+    btn.disabled = false; btn.textContent = '停止';
+    toast(e.message);
+  }
+}
+
+function stopPoll(){ if(state.polling){ clearInterval(state.polling); state.polling = null; } }
+
+function poll(pid){
+  stopPoll();
+  const t0 = Date.now();
+  const LIMIT = 5 * 60 * 1000;
+  let errs = 0, n = 0;
+
+  const finishBtn = label => {
+    const btn = $('#run');
+    btn.disabled = false; btn.textContent = label; btn.className = 'btn';
+    state.running = false;
+  };
+
+  const tick = async () => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    if(Date.now() - t0 > LIMIT){
+      stopPoll(); finishBtn('重新运行'); setStatus('', false);
+      $('#out').innerHTML = `<div class="err">等了 5 分钟还没出结果。\n可能还在排队，也可能已经失败了。去电脑端的 ComfyUI 窗口看一眼日志，或点「重新运行」。</div>`;
+      return;
+    }
+    try{
+      const h = await api('/api/job?id=' + encodeURIComponent(pid));
+      errs = 0;
+      const job = h[pid];
+      const files = collectFiles(job && job.outputs);
+      if(files.length){
+        stopPoll(); finishBtn('再跑一次');
+        const rec = { pid, ts: Date.now(), sec, files };
+        LS.set('job:' + state.cur.id, rec);
+        $('#out').innerHTML = resultBlock(rec, true);
+        bindResult();
+        $('#jump').style.display = 'none';
+        setStatus('<b>完成</b> · ' + sec + 's', true);
+        setTimeout(() => $('#out').scrollIntoView({ behavior:'smooth', block:'start' }), 60);
+        return;
+      }
+      const st = job && job.status;
+      if(st && st.status_str === 'error'){
+        stopPoll(); finishBtn('重新运行'); setStatus('', false);
+        $('#out').innerHTML = '<div class="err">执行出错，去电脑端的 ComfyUI 窗口看日志</div>';
+        return;
+      }
+      if(st && st.completed){
+        stopPoll(); finishBtn('再跑一次'); setStatus('', false);
+        $('#out').innerHTML = '<div class="hint">跑完了，但这个工作流没有可预览的输出节点</div>';
+        return;
+      }
+      n++;
+      let pos = '';
+      if(n % 2 === 1){
+        try{
+          const q = await api('/api/queue');
+          const run = (q.queue_running || []).map(x => x[1]);
+          const pend = (q.queue_pending || []).map(x => x[1]);
+          if(run.includes(pid)) pos = '正在生成';
+          else if(pend.includes(pid)) pos = '排队第 ' + (pend.indexOf(pid) + 1) + ' 位';
+        }catch(e){}
+      }
+      setStatus('<b>' + (pos || '处理中') + '</b> · ' + sec + 's', true);
+    }catch(e){
+      errs++;
+      if(errs >= 8){
+        stopPoll(); finishBtn('重新运行'); setStatus('', false);
+        $('#out').innerHTML = `<div class="err">连着几次没连上控制台服务：${esc(e.message)}\n检查电脑上的服务窗口是否还在跑。</div>`;
+        return;
+      }
+      setStatus('等待中 · ' + sec + 's', true);
+    }
+  };
+  state.polling = setInterval(tick, 2000);
+  tick();
+}
+
+function collectFiles(outputs){
+  const files = [];
+  if(!outputs) return files;
+  for(const nid in outputs){
+    const o = outputs[nid] || {};
+    for(const key of ['images','gifs','videos']){
+      if(Array.isArray(o[key])) o[key].forEach(f => files.push(f));
+    }
+  }
+  return files;
+}
+
+function resultBlock(rec, fresh){
+  const files = rec.files || [];
+  if(!files.length) return '<div class="hint">这个工作流没有可预览的输出节点</div>';
+  const when = fresh ? '用时 ' + rec.sec + 's' : new Date(rec.ts).toLocaleString('zh-CN', { hour12:false });
+  const cells = files.map(f => {
+    const q = viewUrl(f, false);
+    if(isVideo(f.filename)) return '<div class="cell"><video src="' + q + '" controls playsinline></video></div>';
+    return '<div class="cell"><img src="' + q + '" alt="" loading="lazy" data-full="' + q + '">' +
+      '<span class="zoom">点击放大</span></div>';
+  }).join('');
+  return '<div class="meta"><span class="' + (fresh ? 'ok' : '') + '">●</span>' +
+    (fresh ? '刚出的图' : '上次的结果') + ' · ' + files.length + ' 张 · ' + esc(when) +
+    '<button data-save="1" type="button">怎么保存</button></div>' +
+    '<div class="results' + (files.length === 1 ? ' single' : '') + '">' + cells + '</div>' +
+    '<p class="hint">点击放大 · 长按图片可存到相册</p>';
+}
+
+function bindResult(){
+  $('#out').querySelectorAll('img[data-full]').forEach(im => {
+    im.onclick = () => { $('#vimg').src = im.dataset.full; $('#viewer').classList.add('on'); };
+  });
+  const sv = $('#out').querySelector('[data-save]');
+  if(sv) sv.onclick = () => toast('长按图片即可保存到相册');
+}
+
+/* ==================== 遮罩编辑器 ==================== */
 const meMask = document.createElement('canvas');
 let meImg = null, meKey = null, meStrokes = [], meCur = null, meMode = 'brush', meSize = 28;
 let meScale = 1, meTx = 0, meTy = 0;
-
-function ensureMaskBtn(box, key){
-  if(box.querySelector('.maskbtn')) return;
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = 'maskbtn';
-  b.textContent = '画遮罩';
-  b.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); openMaskEditor(key); };
-  box.appendChild(b);
-}
 
 function meRedraw(){
   const c = $('#meCanvas');
@@ -365,20 +816,15 @@ function meRedraw(){
   const ctx = c.getContext('2d');
   const mctx = meMask.getContext('2d');
   mctx.clearRect(0, 0, meMask.width, meMask.height);
-  mctx.lineCap = 'round';
-  mctx.lineJoin = 'round';
-  mctx.fillStyle = '#ff3c3c';
-  mctx.strokeStyle = '#ff3c3c';
+  mctx.lineCap = 'round'; mctx.lineJoin = 'round';
+  mctx.fillStyle = '#ff3c3c'; mctx.strokeStyle = '#ff3c3c';
   for(const s of meStrokes){
     mctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
     mctx.lineWidth = s.size;
     if(s.pts.length === 1){
-      mctx.beginPath();
-      mctx.arc(s.pts[0].x, s.pts[0].y, s.size / 2, 0, Math.PI * 2);
-      mctx.fill();
+      mctx.beginPath(); mctx.arc(s.pts[0].x, s.pts[0].y, s.size / 2, 0, Math.PI * 2); mctx.fill();
     }else{
-      mctx.beginPath();
-      mctx.moveTo(s.pts[0].x, s.pts[0].y);
+      mctx.beginPath(); mctx.moveTo(s.pts[0].x, s.pts[0].y);
       for(let i = 1; i < s.pts.length; i++) mctx.lineTo(s.pts[i].x, s.pts[i].y);
       mctx.stroke();
     }
@@ -389,96 +835,69 @@ function meRedraw(){
 }
 
 function mePos(ev){
-  const c = $('#meCanvas');
-  const r = c.getBoundingClientRect();
-  return {
-    x: (ev.clientX - r.left) * (c.width / r.width),
-    y: (ev.clientY - r.top) * (c.height / r.height)
-  };
+  const c = $('#meCanvas'), r = c.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) * (c.width / r.width), y: (ev.clientY - r.top) * (c.height / r.height) };
 }
 
 function openMaskEditor(key){
-  const src = (state.maskSrc && state.maskSrc[key]) || state.values[key];
+  const src = state.maskSrc[key] || state.values[key];
   if(!src){ toast('请先上传图片'); return; }
-  meKey = key;
-  meStrokes = [];
-  meCur = null;
-  meScale = 1;
-  meTx = 0;
-  meTy = 0;
+  meKey = key; meStrokes = []; meCur = null; meScale = 1; meTx = 0; meTy = 0;
   const wrap = document.querySelector('.me-wrap');
-  if(wrap){
-    wrap.style.transformOrigin = '50% 50%';
-    wrap.style.transform = '';
-  }
+  if(wrap){ wrap.style.transformOrigin = '50% 50%'; wrap.style.transform = ''; }
   $('#maskEd').classList.add('on');
   const img = new Image();
-  img.onload = ()=>{
+  img.onload = () => {
     meImg = img;
-    // 手机内存有限，4000px 的原图直接开 canvas 会崩；编辑时限制长边，服务端会再放大回原尺寸
     const MAX = 2048;
     const sc = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
     const c = $('#meCanvas');
     c.width = Math.max(1, Math.round(img.naturalWidth * sc));
     c.height = Math.max(1, Math.round(img.naturalHeight * sc));
-    meMask.width = c.width;
-    meMask.height = c.height;
+    meMask.width = c.width; meMask.height = c.height;
     $('#meImg').src = img.src;
     meRedraw();
   };
-  img.onerror = ()=>{ toast('图片加载失败'); };
-  img.src = `/api/view?filename=${encodeURIComponent(src)}&type=input&t=${Date.now()}`;
+  img.onerror = () => toast('图片加载失败');
+  img.src = '/api/view?filename=' + encodeURIComponent(src) + '&type=input&t=' + Date.now();
 }
 
 function finishMask(){
   if(!meImg || !meStrokes.length){ toast('还没有涂抹'); return; }
   const w = meMask.width, h = meMask.height;
-
-  // 1) 生成黑白遮罩图（全不透明，避免浏览器把透明像素的 RGB 清零）
-  const tmp = document.createElement('canvas');
-  tmp.width = w; tmp.height = h;
+  const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
   const tx = tmp.getContext('2d');
   tx.drawImage(meMask, 0, 0);
   tx.globalCompositeOperation = 'source-in';
-  tx.fillStyle = '#ffffff';
-  tx.fillRect(0, 0, w, h);
+  tx.fillStyle = '#ffffff'; tx.fillRect(0, 0, w, h);
 
-  const mc = document.createElement('canvas');
-  mc.width = w; mc.height = h;
+  const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
   const mx = mc.getContext('2d');
-  mx.fillStyle = '#000000';
-  mx.fillRect(0, 0, w, h);
+  mx.fillStyle = '#000000'; mx.fillRect(0, 0, w, h);
   mx.drawImage(tmp, 0, 0);
 
-  const raw = String((state.maskSrc && state.maskSrc[meKey]) || 'image');
+  const raw = String(state.maskSrc[meKey] || 'image');
   const stem = raw.replace(/\.[^.]+$/, '');
 
-  mc.toBlob(async blob=>{
+  mc.toBlob(async blob => {
     if(!blob){ toast('生成失败'); return; }
     try{
-      // 2) 先上传遮罩图
       const r1 = await fetch('/api/upload', {
-        method:'POST',
-        headers:{'X-Filename': encodeURIComponent(stem + '_m.png')},
-        body: blob
+        method:'POST', headers:{ 'X-Filename': encodeURIComponent(stem + '_m.png') }, body: blob
       });
       const d1 = await r1.json();
       if(!r1.ok) throw new Error(d1.error || '遮罩上传失败');
-
-      // 3) 交给服务端合成「原图 RGB + 遮罩 alpha」
       const r2 = await fetch('/api/mask', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+        method:'POST', headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ base: raw, mask: d1.name })
       });
       const d2 = await r2.json();
       if(!r2.ok) throw new Error(d2.error || '合成失败');
-
       state.values[meKey] = d2.name;
-      const box = document.querySelector(`[data-pick="${meKey}"]`);
-      const pv = box && box.querySelector('img.preview');
-      if(pv) pv.src = `/api/view?filename=${encodeURIComponent(d2.name)}&type=input&t=${Date.now()}`;
+      state.maskSrc[meKey] = d2.name;
+      persistValues();
       $('#maskEd').classList.remove('on');
+      renderForm();
       toast('遮罩已应用，直接运行即可');
     }catch(e){ toast(e.message); }
   }, 'image/png');
@@ -491,11 +910,10 @@ function setupMaskEditor(){
 
   const ptrs = new Map();
   let pinch = null;
-
   const wrapEl = () => document.querySelector('.me-wrap');
   function applyT(){
     const w = wrapEl();
-    if(w) w.style.transform = `translate(${meTx}px, ${meTy}px) scale(${meScale})`;
+    if(w) w.style.transform = 'translate(' + meTx + 'px, ' + meTy + 'px) scale(' + meScale + ')';
   }
   function resetView(){
     meScale = 1; meTx = 0; meTy = 0;
@@ -504,75 +922,57 @@ function setupMaskEditor(){
   }
   function pinchInfo(){
     const p = [...ptrs.values()];
-    return {
-      d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1,
-      cx: (p[0].x + p[1].x) / 2,
-      cy: (p[0].y + p[1].y) / 2
-    };
+    return { d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1,
+             cx: (p[0].x + p[1].x) / 2, cy: (p[0].y + p[1].y) / 2 };
   }
 
-  c.addEventListener('pointerdown', ev=>{
+  c.addEventListener('pointerdown', ev => {
     if(!meImg) return;
     ev.preventDefault();
     try{ c.setPointerCapture(ev.pointerId); }catch(e){}
     ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-
     if(ptrs.size === 1){
       const r = c.getBoundingClientRect();
       meCur = { size: meSize * (c.width / r.width), erase: meMode === 'eraser', pts: [mePos(ev)] };
       meStrokes.push(meCur);
       meRedraw();
     }else if(ptrs.size === 2){
-      // 进入双指：撤掉刚才单指起的那一笔，避免误画
       if(meCur){ meStrokes.pop(); meCur = null; meRedraw(); }
-      const { d, cx, cy } = pinchInfo();
-      const w = wrapEl();
-      const r = w.getBoundingClientRect();
-      const ox = r.width ? (cx - r.left) / r.width : 0.5;
-      const oy = r.height ? (cy - r.top) / r.height : 0.5;
-      w.style.transformOrigin = `${(ox * 100).toFixed(2)}% ${(oy * 100).toFixed(2)}%`;
-      pinch = { d0: d, s0: meScale, cx0: cx, cy0: cy, tx0: meTx, ty0: meTy };
+      const info = pinchInfo();
+      const w = wrapEl(), r = w.getBoundingClientRect();
+      const ox = r.width ? (info.cx - r.left) / r.width : .5;
+      const oy = r.height ? (info.cy - r.top) / r.height : .5;
+      w.style.transformOrigin = (ox * 100).toFixed(2) + '% ' + (oy * 100).toFixed(2) + '%';
+      pinch = { d0: info.d, s0: meScale, cx0: info.cx, cy0: info.cy, tx0: meTx, ty0: meTy };
     }
   });
 
-  c.addEventListener('pointermove', ev=>{
+  c.addEventListener('pointermove', ev => {
     if(!ptrs.has(ev.pointerId)) return;
     ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-
     if(ptrs.size >= 2 && pinch){
       ev.preventDefault();
-      const { d, cx, cy } = pinchInfo();
-      let s = pinch.s0 * (d / pinch.d0);
-      s = Math.min(8, Math.max(1, s));
-      meScale = s;
-      meTx = pinch.tx0 + (cx - pinch.cx0);
-      meTy = pinch.ty0 + (cy - pinch.cy0);
-      applyT();
-      return;
+      const info = pinchInfo();
+      meScale = Math.min(8, Math.max(1, pinch.s0 * (info.d / pinch.d0)));
+      meTx = pinch.tx0 + (info.cx - pinch.cx0);
+      meTy = pinch.ty0 + (info.cy - pinch.cy0);
+      applyT(); return;
     }
-
     if(!meCur || !meImg) return;
     ev.preventDefault();
     const p = mePos(ev);
     const prev = meCur.pts[meCur.pts.length - 1];
     meCur.pts.push(p);
-    // 增量绘制，避免每次全量重绘
-    const layers = [meMask.getContext('2d'), c.getContext('2d')];
-    for(const g of layers){
+    for(const g of [meMask.getContext('2d'), c.getContext('2d')]){
       g.globalCompositeOperation = meCur.erase ? 'destination-out' : 'source-over';
-      g.strokeStyle = '#ff3c3c';
-      g.lineWidth = meCur.size;
-      g.lineCap = 'round';
-      g.lineJoin = 'round';
-      g.beginPath();
-      g.moveTo(prev.x, prev.y);
-      g.lineTo(p.x, p.y);
-      g.stroke();
+      g.strokeStyle = '#ff3c3c'; g.lineWidth = meCur.size;
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      g.beginPath(); g.moveTo(prev.x, prev.y); g.lineTo(p.x, p.y); g.stroke();
       g.globalCompositeOperation = 'source-over';
     }
   });
 
-  const end = ev=>{
+  const end = ev => {
     ptrs.delete(ev.pointerId);
     if(ptrs.size < 2) pinch = null;
     if(ptrs.size === 0) meCur = null;
@@ -580,169 +980,40 @@ function setupMaskEditor(){
   c.addEventListener('pointerup', end);
   c.addEventListener('pointercancel', end);
 
-  const rb = $('#meReset');
-  if(rb) rb.onclick = resetView;
-
-  $('#meClose').onclick = ()=> $('#maskEd').classList.remove('on');
-  $('#meBrush').onclick = ()=>{
-    meMode = 'brush';
-    $('#meBrush').classList.add('on');
-    $('#meEraser').classList.remove('on');
+  $('#meReset').onclick = resetView;
+  $('#meClose').onclick = () => $('#maskEd').classList.remove('on');
+  $('#meBrush').onclick = () => {
+    meMode = 'brush'; $('#meBrush').classList.add('on'); $('#meEraser').classList.remove('on');
   };
-  $('#meEraser').onclick = ()=>{
-    meMode = 'eraser';
-    $('#meEraser').classList.add('on');
-    $('#meBrush').classList.remove('on');
+  $('#meEraser').onclick = () => {
+    meMode = 'eraser'; $('#meEraser').classList.add('on'); $('#meBrush').classList.remove('on');
   };
-  $('#meSize').oninput = ev=>{ meSize = +ev.target.value; };
-  $('#meUndo').onclick = ()=>{ meStrokes.pop(); meRedraw(); };
-  $('#meClear').onclick = ()=>{ meStrokes = []; meRedraw(); };
+  $('#meSize').oninput = ev => { meSize = +ev.target.value; };
+  $('#meUndo').onclick = () => { meStrokes.pop(); meRedraw(); };
+  $('#meClear').onclick = () => { meStrokes = []; meRedraw(); };
   $('#meDone').onclick = finishMask;
 }
 
-async function run(){
-  const btn = $('#run');
-  const miss = (state.cur.params.primary || []).filter(p =>
-    (p.kind === 'image' || p.kind === 'video') && !state.values[p.key]);
-  if(miss.length){
-    toast(miss.length > 1 ? '还有素材没选' : (miss[0].kind === 'video' ? '请先选一个视频' : '请先选一张图片'));
-    return;
-  }
-  btn.disabled = true; btn.textContent = '提交中…';
-  $('#out').innerHTML = '';
-  try{
-    const res = await api('/api/run', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({id: state.cur.id, values: state.values})
-    });
-    if(res.node_errors && Object.keys(res.node_errors).length){
-      throw new Error('工作流校验失败:\n' + JSON.stringify(res.node_errors, null, 1).slice(0,500));
-    }
-    poll(res.prompt_id);
-  }catch(e){
-    $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`;
-    btn.disabled = false; btn.textContent = '运行';
-  }
-}
-
-function stopPoll(){
-  if(state.polling){ clearInterval(state.polling); state.polling = null; }
-}
-
-function setStat(text, on){
-  const rs = $('#runstat');
-  if(!rs) return;
-  rs.textContent = text || '';
-  rs.classList.toggle('on', !!on && !!text);
-}
-
-function poll(pid){
-  stopPoll();
-  const t0 = Date.now();
-  const LIMIT = 5 * 60 * 1000;   // 超过 5 分钟就不再傻等
-  const out = $('#out');
-  const btn = $('#run');
-  let errs = 0;
-  btn.disabled = true; btn.textContent = '运行中…';
-  out.innerHTML = '';
-  setStat('已提交，准备中…', true);
-
-  const giveUp = (title, detail)=>{
-    stopPoll();
-    btn.disabled = false; btn.textContent = '重新运行';
-    setStat(title, true);
-    out.innerHTML = `<div class="err">${esc(detail)}</div>`;
-  };
-
-  const tick = async ()=>{
-    const sec = Math.round((Date.now()-t0)/1000);
-    if(Date.now() - t0 > LIMIT){
-      giveUp('等待超时', '等了 5 分钟还没拿到结果。\n可能还在排队，也可能任务已经失败了。\n去电脑端的 ComfyUI 窗口看一眼日志，或点「重新运行」。');
-      return;
-    }
-    try{
-      const h = await api('/api/job?id=' + encodeURIComponent(pid));
-      errs = 0;
-      const job = h[pid];
-      if(job && job.outputs && Object.keys(job.outputs).length){
-        stopPoll();
-        btn.disabled = false; btn.textContent = '再跑一次';
-        setStat(`完成 · 用时 ${sec}s`, true);
-        renderOutputs(job.outputs, sec);
-        return;
-      }
-      const st = job && job.status;
-      if(st && st.status_str === 'error'){
-        giveUp('执行出错', '执行出错，去电脑端的 ComfyUI 窗口看日志');
-        return;
-      }
-      if(st && st.completed){
-        stopPoll();
-        btn.disabled = false; btn.textContent = '再跑一次';
-        setStat(`完成 · 用时 ${sec}s`, true);
-        out.innerHTML = '<div class="stat">完成，但这个工作流没有可预览的输出节点</div>';
-        return;
-      }
-      setStat(st && st.status_str === 'running' ? `生成中 ${sec}s` : `排队中 ${sec}s`, true);
-    }catch(e){
-      errs++;
-      if(errs >= 8){
-        giveUp('连接中断', '连续好几次没连上控制台服务：' + e.message + '\n检查电脑上的服务窗口是否还在运行。');
-        return;
-      }
-      setStat(`等待中 ${sec}s`, true);
-    }
-  };
-  state.polling = setInterval(tick, 2000);
-  tick();
-}
-
-function renderOutputs(outputs, sec){
-  const files = [];
-  for(const nid in outputs){
-    const o = outputs[nid];
-    for(const key of ['images','gifs','videos']){
-      if(Array.isArray(o[key])) o[key].forEach(f => files.push(f));
-    }
-  }
-  if(!files.length){
-    $('#out').innerHTML = `<div class="stat">完成（${sec}s），但这个工作流没有可预览的输出节点</div>`;
-    return;
-  }
-  const cells = files.map(f=>{
-    const q = `/api/view?filename=${encodeURIComponent(f.filename)}&subfolder=${encodeURIComponent(f.subfolder||'')}&type=${encodeURIComponent(f.type||'output')}`;
-    const ext = (f.filename.split('.').pop()||'').toLowerCase();
-    if(['mp4','webm','mov'].includes(ext)) return `<video src="${q}" controls playsinline></video>`;
-    const m = f.metadata || {};
-    const ar = (m.width && m.height) ? ` style="aspect-ratio:${m.width}/${m.height}"` : '';
-    return `<img src="${q}"${ar} decoding="async" data-full="${q}">`;
-  }).join('');
-  $('#out').innerHTML = `<div class="stat" style="color:var(--ok)">● 完成 · 用时 ${sec}s · ${files.length} 个结果</div>
-    <div class="res">${cells}</div>
-    <p class="tip">点击看大图 · 长按保存到相册</p>`;
-  $('#out').querySelectorAll('img[data-full]').forEach(im=>{
-    im.onclick = ()=>{ $('#vimg').src = im.dataset.full; $('#viewer').classList.add('on'); };
-  });
-  setTimeout(()=>{ $('#out').scrollIntoView({behavior:'smooth', block:'start'}); }, 80);
-}
-
-document.addEventListener('focusin', e=>{
+/* ==================== 启动 ==================== */
+document.addEventListener('focusin', e => {
   if(['TEXTAREA','INPUT'].includes(e.target.tagName)) document.body.classList.add('kb');
 });
-document.addEventListener('focusout', ()=>{
-  setTimeout(()=>{
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
     const t = document.activeElement && document.activeElement.tagName;
     if(!['TEXTAREA','INPUT'].includes(t)) document.body.classList.remove('kb');
   }, 120);
 });
-$('#vclose').onclick = ()=> $('#viewer').classList.remove('on');
-$('#viewer').onclick = (e)=>{ if(e.target.id === 'viewer') $('#viewer').classList.remove('on'); };
-$('#back').onclick = ()=>{ location.hash=''; showList(); };
-window.addEventListener('hashchange', ()=>{ if(!location.hash) showList(); });
+$('#vclose').onclick = () => $('#viewer').classList.remove('on');
+$('#viewer').onclick = e => { if(e.target.id === 'viewer') $('#viewer').classList.remove('on'); };
+$('#back').onclick = () => showList();
+window.addEventListener('hashchange', () => { if(!location.hash) showList(); });
+
+setupMaskEditor();
 health(); setInterval(health, 20000);
 if(location.hash === '#wf' && localStorage.getItem('lastWf')){
   openWorkflow(localStorage.getItem('lastWf'));
-} else {
+}else{
   showList();
 }
 </script>
