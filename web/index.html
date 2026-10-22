@@ -431,11 +431,6 @@ async function openWorkflow(id){
     state.cur = d;
     state.values = {};
     state.maskSrc = {};
-    const saved = LS.get('vals:' + d.id, {});
-    for(const p of d.params.primary.concat(d.params.advanced)){
-      if(p.kind === 'image' || p.kind === 'video') continue;
-      if(saved[p.key] !== undefined) state.values[p.key] = saved[p.key];
-    }
     $('#title').textContent = d.title || id.split('/').pop().replace('.api.json','');
     $('#sub').textContent = (d.params.primary.length + d.params.advanced.length) + ' 个参数' +
       (d.params.advanced.length ? ' · 高级可展开' : '');
@@ -601,8 +596,7 @@ function bindForm(){
     const k = el.dataset.v;
     const sync = () => {
       state.values[k] = el.type === 'checkbox' ? el.checked : el.value;
-      persistValues();
-    };
+      };
     sync();
     el.addEventListener('input', sync);
     el.addEventListener('change', sync);
@@ -616,7 +610,6 @@ function bindForm(){
     b.onclick = () => {
       const k = b.dataset.ratio;
       state.values[k] = b.dataset.val;
-      persistValues();
       app.querySelectorAll('[data-rg="' + k + '"] .ratio').forEach(x => x.classList.toggle('on', x === b));
     };
   });
@@ -661,14 +654,14 @@ function bindForm(){
       ev.preventDefault(); ev.stopPropagation();
       const k = b.dataset.clear;
       delete state.values[k]; delete state.maskSrc[k];
-      persistValues(); renderForm();
+      renderForm();
     };
   });
 
   const cp = app.querySelector('[data-act="clearprompt"]');
   if(cp) cp.onclick = () => {
     state.cur.params.primary.filter(p => p.group === 'prompt').forEach(p => state.values[p.key] = '');
-    persistValues(); renderForm(); toast('提示词已清空');
+    renderForm(); toast('提示词已清空');
   };
   const cp2 = app.querySelector('[data-act="copyprompt"]');
   if(cp2) cp2.onclick = async () => {
@@ -679,19 +672,6 @@ function bindForm(){
 
   $('#run').onclick = () => state.running ? stopRun() : doRun();
   $('#jump').onclick = () => $('#out').scrollIntoView({ behavior:'smooth', block:'start' });
-}
-
-function persistValues(){
-  const d = state.cur; if(!d) return;
-  const media = new Set(d.params.primary.concat(d.params.advanced)
-    .filter(p => p.kind === 'image' || p.kind === 'video').map(p => p.key));
-  const clean = {};
-  for(const [k, v] of Object.entries(state.values)){
-    if(media.has(k)) continue;
-    clean[k] = v;
-  }
-  clearTimeout(persistValues._t);
-  persistValues._t = setTimeout(() => LS.set('vals:' + d.id, clean), 400);
 }
 
 async function uploadImage(inp){
@@ -708,7 +688,6 @@ async function uploadImage(inp){
     if(!r.ok) throw new Error(d.error || '上传失败');
     state.values[k] = d.name;
     state.maskSrc[k] = d.name;
-    persistValues();
     renderForm();
     toast(kind === 'video' ? '视频已上传' : '图片已上传');
   }catch(e){
@@ -995,7 +974,6 @@ function finishMask(){
       if(!r2.ok) throw new Error(d2.error || '合成失败');
       state.values[meKey] = d2.name;
       state.maskSrc[meKey] = d2.name;
-      persistValues();
       $('#maskEd').classList.remove('on');
       renderForm();
       toast('遮罩已应用，直接运行即可');
