@@ -481,6 +481,12 @@ def extract_params(prompt):
                 item["choices"] = choices[:200]
             if kind in ("image", "video"):
                 item["accept"] = "video/*" if kind == "video" else "image/*"
+            if kind == "number":
+                # 把节点的取值范围一起带给手机端，步进按钮才不会跳出范围
+                for mk in ("min", "max", "step"):
+                    mv = spec_meta.get(mk)
+                    if isinstance(mv, (int, float)) and not isinstance(mv, bool):
+                        item[mk] = mv
             if spec_meta.get("multiline"):
                 item["multiline"] = True
 

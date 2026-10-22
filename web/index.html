@@ -167,9 +167,22 @@
   .status.hide{display:none}
   .status .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.16);
     border-top-color:var(--accent);border-radius:50%;animation:sp .75s linear infinite;flex:none}
+  .status .dotmini{display:none;width:7px;height:7px;border-radius:50%;
+    background:var(--ok);box-shadow:0 0 8px rgba(62,207,142,.7);flex:none}
+  .status.still .spin{display:none}
+  .status.still .dotmini{display:block}
   .status b{color:var(--text);font-weight:500}
   .status .jump{margin-left:auto;color:var(--accent);font-size:12px;background:none;border:0;cursor:pointer}
   @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* 数字步进 */
+  .numwrap{display:flex;align-items:center;gap:8px}
+  .numwrap input[type=number]{flex:1;min-width:0;text-align:center}
+  .stepbtn{flex:none;width:42px;height:42px;border-radius:12px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.06);color:var(--text);font-size:19px;line-height:1;
+    display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;
+    font-family:inherit;transition:background .12s, transform .12s}
+  .stepbtn:active{background:rgba(255,255,255,.14);transform:scale(.94)}
 
   .btn{width:100%;border:0;border-radius:15px;padding:16px;font-size:17px;font-weight:600;
     color:#fff;background:var(--accent);cursor:pointer;letter-spacing:.02em;
@@ -258,7 +271,8 @@
 <main id="view"><div class="empty">加载中…</div></main>
 
 <div class="runbar" id="runbar" style="display:none">
-  <div class="status hide" id="status"><span class="spin"></span><span id="stxt">准备中</span>
+  <div class="status hide" id="status"><span class="spin"></span><span class="dotmini"></span>
+    <span id="stxt">准备中</span>
     <button class="jump" id="jump" style="display:none">看结果</button></div>
   <button class="btn" id="run">运行</button>
 </div>
@@ -469,7 +483,21 @@ function fldHtml(p, skipLabel){
     return `<div class="fld" data-fld="${k}"><div class="sw"><span>${esc(p.label)}</span>
       <input type="checkbox" data-v="${k}"${(v === true || String(v).toLowerCase() === 'true') ? ' checked' : ''}></div></div>`;
   }else if(p.kind === 'number'){
-    inner = `<input type="number" inputmode="decimal" step="any" data-v="${k}" value="${esc(v)}">`;
+    const minA = (typeof p.min === 'number') ? ` min="${p.min}"` : '';
+    const maxA = (typeof p.max === 'number') ? ` max="${p.max}"` : '';
+    const stepV = (() => {
+      let s = (typeof p.step === 'number' && p.step > 0)
+        ? p.step : (Number.isInteger(Number(v)) ? 1 : 0.1);
+      // 0.01 这种细步长点一百下也调不完，抬到 0.05；整数参数保持 1
+      if(s < 0.05) s = 0.05;
+      return Math.round(s * 1000) / 1000;
+    })();
+    inner = `<div class="numwrap">
+        <button type="button" class="stepbtn" data-stepdir="-1" data-stepfor="${k}" aria-label="减少">−</button>
+        <input type="number" inputmode="decimal" step="${stepV}" data-v="${k}"
+          data-step="${stepV}"${minA}${maxA} value="${esc(v)}">
+        <button type="button" class="stepbtn" data-stepdir="1" data-stepfor="${k}" aria-label="增加">+</button>
+      </div>`;
   }else if(p.multiline || p.group === 'prompt'){
     inner = `<textarea data-v="${k}" placeholder="描述你想要的画面…">${esc(v)}</textarea>`;
   }else{
@@ -580,6 +608,35 @@ function bindForm(){
     };
   });
 
+  // 数字步进：按节点声明的 step 走，遇到 min/max 就夹住；按住可连续加减
+  app.querySelectorAll('[data-stepdir]').forEach(btn => {
+    const fire = () => {
+      const k = btn.dataset.stepfor;
+      const inp = app.querySelector('[data-v="' + k + '"]');
+      if(!inp) return;
+      const st = parseFloat(inp.dataset.step) || 1;
+      const dir = +btn.dataset.stepdir;
+      let cur = parseFloat(inp.value);
+      if(!isFinite(cur)) cur = parseFloat(inp.min) || 0;
+      let next = cur + st * dir;
+      const lo = inp.min === '' ? NaN : parseFloat(inp.min);
+      const hi = inp.max === '' ? NaN : parseFloat(inp.max);
+      if(!isNaN(lo)) next = Math.max(lo, next);
+      if(!isNaN(hi)) next = Math.min(hi, next);
+      next = Math.round(next * 1e6) / 1e6;
+      inp.value = String(next);
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    let t1 = null, t2 = null;
+    const stop = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; };
+    btn.addEventListener('pointerdown', ev => {
+      ev.preventDefault();
+      fire();
+      t1 = setTimeout(() => { t2 = setInterval(fire, 80); }, 420);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(e => btn.addEventListener(e, stop));
+  });
+
   app.querySelectorAll('[data-img]').forEach(inp => {
     inp.addEventListener('change', () => uploadImage(inp));
   });
@@ -649,10 +706,11 @@ async function uploadImage(inp){
 }
 
 /* ==================== 运行 ==================== */
-function setStatus(html, on){
+function setStatus(html, on, spinning){
   const s = $('#status');
   if(!s) return;
   s.classList.toggle('hide', !on);
+  s.classList.toggle('still', spinning === false);
   if(on) $('#stxt').innerHTML = html;
 }
 
@@ -734,7 +792,7 @@ function poll(pid){
         $('#out').innerHTML = resultBlock(rec, true);
         bindResult();
         $('#jump').style.display = 'none';
-        setStatus('<b>完成</b> · ' + sec + 's', true);
+        setStatus('<b>完成</b> · ' + sec + 's', true, false);
         setTimeout(() => $('#out').scrollIntoView({ behavior:'smooth', block:'start' }), 60);
         return;
       }
