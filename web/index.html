@@ -302,7 +302,8 @@
 <script>
 const $ = s => document.querySelector(s);
 const app = $('#view');
-const state = { list: [], cur: null, values: {}, maskSrc: {}, polling: null, running: false, pid: null };
+const state = { list: [], cur: null, values: {}, maskSrc: {}, watch: null,
+                running: false, pid: null, lastJob: null };
 
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } },
@@ -344,7 +345,7 @@ function pushRecent(item){
 
 async function showList(){
   location.hash = '';
-  state.cur = null; stopPoll();
+  state.cur = null; stopWatch();
   $('#back').style.display = 'none';
   $('#title').textContent = '工作流';
   $('#sub').textContent = '';
@@ -420,7 +421,8 @@ function renderList(filter){
 
 /* ==================== 表单 ==================== */
 async function openWorkflow(id){
-  stopPoll();
+  stopWatch();
+  state.lastJob = null;
   $('#title').textContent = '加载中…';
   $('#sub').textContent = '';
   app.innerHTML = '<div class="empty">读取工作流参数…</div>';
@@ -441,6 +443,7 @@ async function openWorkflow(id){
     app.classList.remove('no-bar');
     pushRecent({ id: d.id, name: d.title || d.id });
     renderForm();
+    refreshLast();
     location.hash = 'wf';
     localStorage.setItem('lastWf', d.id || id);
   }catch(e){
@@ -580,8 +583,7 @@ function renderForm(){
       <div class="bd">${A.map(p => fldHtml(p)).join('')}</div></details>`;
   }
 
-  const last = LS.get('job:' + d.id, null);
-  h += `<div id="out">${last ? resultBlock(last, false) : ''}</div>`;
+  h += '<div id="out"></div>';
 
   app.innerHTML = h;
   bindForm();
@@ -589,8 +591,9 @@ function renderForm(){
   const btn = $('#run');
   btn.textContent = '运行'; btn.className = 'btn'; btn.disabled = false;
   setStatus('', false);
-  $('#jump').style.display = last ? 'inline' : 'none';
-  if(!last) window.scrollTo({ top: 0 });
+  $('#jump').style.display = 'none';
+  window.scrollTo({ top: 0 });
+  paintJob(state.lastJob, false);
 }
 
 function bindForm(){
@@ -734,7 +737,7 @@ async function doRun(){
   }
   const btn = $('#run');
   btn.disabled = true; btn.textContent = '提交中…';
-  $('#out').innerHTML = '';
+  const out = $('#out'); if(out) out.innerHTML = '';
   setStatus('', false);
   try{
     const res = await api('/api/run', {
@@ -746,9 +749,13 @@ async function doRun(){
     }
     state.running = true; state.pid = res.prompt_id;
     btn.disabled = false; btn.textContent = '停止'; btn.className = 'btn stop';
-    poll(res.prompt_id);
+    setStatus('<b>已提交</b> · 可以锁屏，回来再看', true, true);
+    if(out) out.innerHTML = '<div class="hint">任务在电脑上继续跑，手机锁屏、关页面都不影响；跑完回来这里就能看到结果。</div>';
+    $('#jump').style.display = 'none';
+    startWatch();
+    setTimeout(tickWatch, 2500);
   }catch(e){
-    $('#out').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    if(out) out.innerHTML = `<div class="err">${esc(e.message)}</div>`;
     btn.disabled = false; btn.textContent = '运行'; btn.className = 'btn';
   }
 }
@@ -757,108 +764,126 @@ async function stopRun(){
   const btn = $('#run');
   btn.disabled = true; btn.textContent = '正在停止…';
   try{
-    await api('/api/interrupt', { method:'POST' });
-    stopPoll();
+    await api('/api/interrupt', {
+      method:'POST', headers:{ 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pid: state.pid || '' })
+    });
+    stopWatch();
     state.running = false;
     btn.disabled = false; btn.textContent = '重新运行'; btn.className = 'btn';
-    setStatus('', false);
+    setStatus('已停止', true, false);
     toast('已中断任务');
+    refreshLast();
   }catch(e){
     btn.disabled = false; btn.textContent = '停止';
     toast(e.message);
   }
 }
 
-function stopPoll(){ if(state.polling){ clearInterval(state.polling); state.polling = null; } }
+/* 任务状态以电脑端台账为准：手机只是来问一句「上次跑成什么样了」 */
+function startWatch(){
+  if(state.watch) return;
+  state.watch = setInterval(() => { if(!document.hidden) tickWatch(); }, 6000);
+}
+function stopWatch(){ if(state.watch){ clearInterval(state.watch); state.watch = null; } }
 
-function poll(pid){
-  stopPoll();
-  const t0 = Date.now();
-  const LIMIT = 5 * 60 * 1000;
-  let errs = 0, n = 0;
-
-  const finishBtn = label => {
-    const btn = $('#run');
-    btn.disabled = false; btn.textContent = label; btn.className = 'btn';
-    state.running = false;
-  };
-
-  const tick = async () => {
-    const sec = Math.round((Date.now() - t0) / 1000);
-    if(Date.now() - t0 > LIMIT){
-      stopPoll(); finishBtn('重新运行'); setStatus('', false);
-      $('#out').innerHTML = `<div class="err">等了 5 分钟还没出结果。\n可能还在排队，也可能已经失败了。去电脑端的 ComfyUI 窗口看一眼日志，或点「重新运行」。</div>`;
+async function tickWatch(){
+  const d = state.cur; if(!d) return;
+  try{
+    const r = await api('/api/last?id=' + encodeURIComponent(d.id));
+    const job = r.job;
+    if(!job){ stopWatch(); return; }
+    if(job.status === 'running'){
+      state.running = true; state.pid = job.pid || state.pid;
+      const btn = $('#run');
+      if(btn && btn.className !== 'btn stop'){ btn.textContent = '停止'; btn.className = 'btn stop'; btn.disabled = false; }
+      setStatus('<b>还在跑</b> · 已 ' + fmtDur(job.elapsed), true, true);
       return;
     }
-    try{
-      const h = await api('/api/job?id=' + encodeURIComponent(pid));
-      errs = 0;
-      const job = h[pid];
-      const files = collectFiles(job && job.outputs);
-      if(files.length){
-        stopPoll(); finishBtn('再跑一次');
-        const rec = { pid, ts: Date.now(), sec, files };
-        LS.set('job:' + state.cur.id, rec);
-        $('#out').innerHTML = resultBlock(rec, true);
-        bindResult();
-        $('#jump').style.display = 'none';
-        setStatus('<b>完成</b> · ' + sec + 's', true, false);
-        setTimeout(() => $('#out').scrollIntoView({ behavior:'smooth', block:'start' }), 60);
-        return;
-      }
-      const st = job && job.status;
-      if(st && st.status_str === 'error'){
-        stopPoll(); finishBtn('重新运行'); setStatus('', false);
-        $('#out').innerHTML = '<div class="err">执行出错，去电脑端的 ComfyUI 窗口看日志</div>';
-        return;
-      }
-      if(st && st.completed){
-        stopPoll(); finishBtn('再跑一次'); setStatus('', false);
-        $('#out').innerHTML = '<div class="hint">跑完了，但这个工作流没有可预览的输出节点</div>';
-        return;
-      }
-      n++;
-      let pos = '';
-      if(n % 2 === 1){
-        try{
-          const q = await api('/api/queue');
-          const run = (q.queue_running || []).map(x => x[1]);
-          const pend = (q.queue_pending || []).map(x => x[1]);
-          if(run.includes(pid)) pos = '正在生成';
-          else if(pend.includes(pid)) pos = '排队第 ' + (pend.indexOf(pid) + 1) + ' 位';
-        }catch(e){}
-      }
-      setStatus('<b>' + (pos || '处理中') + '</b> · ' + sec + 's', true);
-    }catch(e){
-      errs++;
-      if(errs >= 8){
-        stopPoll(); finishBtn('重新运行'); setStatus('', false);
-        $('#out').innerHTML = `<div class="err">连着几次没连上控制台服务：${esc(e.message)}\n检查电脑上的服务窗口是否还在跑。</div>`;
-        return;
-      }
-      setStatus('等待中 · ' + sec + 's', true);
-    }
-  };
-  state.polling = setInterval(tick, 2000);
-  tick();
+    paintJob(job, state.running);
+  }catch(e){ /* 网络抖动，下一轮再说 */ }
 }
 
-function collectFiles(outputs){
-  const files = [];
-  if(!outputs) return files;
-  for(const nid in outputs){
-    const o = outputs[nid] || {};
-    for(const key of ['images','gifs','videos']){
-      if(Array.isArray(o[key])) o[key].forEach(f => files.push(f));
+async function refreshLast(){
+  const d = state.cur; if(!d) return;
+  try{
+    const r = await api('/api/last?id=' + encodeURIComponent(d.id));
+    paintJob(r.job, false);
+  }catch(e){}
+}
+
+function fmtDur(sec){
+  sec = Math.max(0, Math.round(sec || 0));
+  if(sec < 60) return sec + ' 秒';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if(m < 60) return m + ' 分' + (s ? ' ' + s + ' 秒' : '');
+  const hh = Math.floor(m / 60), mm = m % 60;
+  return hh + ' 小时' + (mm ? ' ' + mm + ' 分' : '');
+}
+
+function fmtWhen(ts){
+  if(!ts) return '';
+  const dt = new Date(ts * 1000);
+  const pad = n => String(n).padStart(2, '0');
+  const hm = pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+  const today = new Date();
+  if(dt.toDateString() === today.toDateString()) return '今天 ' + hm;
+  const yest = new Date(today.getTime() - 86400000);
+  if(dt.toDateString() === yest.toDateString()) return '昨天 ' + hm;
+  return (dt.getMonth() + 1) + '-' + dt.getDate() + ' ' + hm;
+}
+
+function paintJob(job, fresh){
+  state.lastJob = job || null;
+  const out = $('#out');
+  const btn = $('#run');
+  if(!job){ if(out) out.innerHTML = ''; return; }
+
+  if(job.status === 'running'){
+    state.running = true; state.pid = job.pid || null;
+    if(btn){ btn.disabled = false; btn.textContent = '停止'; btn.className = 'btn stop'; }
+    setStatus('<b>还在跑</b> · 已 ' + fmtDur(job.elapsed), true, true);
+    if(out && !out.innerHTML.trim()){
+      out.innerHTML = '<div class="hint">任务在电脑上继续跑，手机锁屏、关页面都不影响；跑完回来这里就能看到结果。</div>';
     }
+    $('#jump').style.display = 'none';
+    startWatch();
+    return;
   }
-  return files;
+
+  stopWatch();
+  state.running = false;
+  state.pid = job.pid || null;
+  if(btn){
+    btn.disabled = false;
+    btn.textContent = job.status === 'done' ? '再跑一次' : '重新运行';
+    btn.className = 'btn';
+  }
+
+  if(job.status === 'done'){
+    setStatus('<b>完成</b> · 用时 ' + fmtDur(job.elapsed), true, false);
+    if(out) out.innerHTML = resultBlock(job, fresh);
+    bindResult();
+    $('#jump').style.display = 'inline';
+    if(fresh && out) setTimeout(() => out.scrollIntoView({ behavior:'smooth', block:'start' }), 60);
+    return;
+  }
+
+  setStatus('', false);
+  if(job.status === 'error' || job.status === 'lost'){
+    if(out) out.innerHTML = `<div class="err">${esc(job.error || '执行出错')}</div>`;
+  }else if(job.status === 'stopped'){
+    if(out) out.innerHTML = '<div class="hint">这次任务被手动中断了</div>';
+  }else{
+    if(out) out.innerHTML = `<div class="hint">${esc(job.error || '跑完了，但没有可预览的输出')}</div>`;
+  }
+  $('#jump').style.display = out && out.innerHTML ? 'inline' : 'none';
 }
 
-function resultBlock(rec, fresh){
-  const files = rec.files || [];
+function resultBlock(job, fresh){
+  const files = job.files || [];
   if(!files.length) return '<div class="hint">这个工作流没有可预览的输出节点</div>';
-  const when = fresh ? '用时 ' + rec.sec + 's' : new Date(rec.ts).toLocaleString('zh-CN', { hour12:false });
+  const when = fresh ? '用时 ' + fmtDur(job.elapsed) : fmtWhen(job.started);
   const cells = files.map(f => {
     const q = viewUrl(f, false);
     if(isVideo(f.filename)) return '<div class="cell"><video src="' + q + '" controls playsinline></video></div>';
@@ -1086,6 +1111,10 @@ window.addEventListener('hashchange', () => { if(!location.hash) showList(); });
 
 setupMaskEditor();
 health(); setInterval(health, 20000);
+// 锁屏/切后台时定时器会被系统挂起，回到前台先立刻问一次电脑端
+document.addEventListener('visibilitychange', () => {
+  if(!document.hidden && state.cur) tickWatch();
+});
 if(location.hash === '#wf' && localStorage.getItem('lastWf')){
   openWorkflow(localStorage.getItem('lastWf'));
 }else{

@@ -24,3 +24,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ===== 运行期状态（任务台账） =====
+.state/

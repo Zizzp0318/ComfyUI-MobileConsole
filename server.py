@@ -304,6 +304,182 @@ def refresh_info_cache():
     return {"ok": True, "comfy": comfy_available()}
 
 
+# ---------------------------------------------------------------------------
+# 任务台账：把「跑完没有、出了什么文件」记在电脑上，手机端随时来问
+# ComfyUI 的 history 只在内存里，重启就没了，所以完成瞬间必须落盘
+# ---------------------------------------------------------------------------
+STATE_DIR = ROOT / ".state"
+JOBS_FILE = STATE_DIR / "jobs.json"
+KEEP_PER_WF = 8
+
+_jobs_lock = threading.Lock()
+_jobs = {}
+_watcher_started = False
+
+
+def _load_jobs():
+    global _jobs
+    try:
+        data = json.loads(JOBS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            _jobs = {str(k): v for k, v in data.items() if isinstance(v, dict)}
+    except Exception:
+        _jobs = {}
+
+
+def _save_jobs_locked():
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = JOBS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_jobs, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(JOBS_FILE)
+    except Exception:
+        pass
+
+
+def _trim_jobs_locked():
+    by_wf = {}
+    for rec in _jobs.values():
+        by_wf.setdefault(rec.get("wf") or "", []).append(rec)
+    for arr in by_wf.values():
+        if len(arr) <= KEEP_PER_WF:
+            continue
+        arr.sort(key=lambda r: r.get("started") or 0, reverse=True)
+        for rec in arr[KEEP_PER_WF:]:
+            _jobs.pop(rec.get("pid") or "", None)
+
+
+def job_start(wf_id, title, pid, status_extra=None):
+    rec = {
+        "pid": pid,
+        "wf": wf_id,
+        "title": title or wf_id,
+        "status": "running",
+        "started": time.time(),
+        "finished": None,
+        "files": [],
+        "error": "",
+    }
+    with _jobs_lock:
+        _jobs[pid] = rec
+        _trim_jobs_locked()
+        _save_jobs_locked()
+    ensure_watcher()
+    return rec
+
+
+def job_latest(wf_id=None):
+    with _jobs_lock:
+        recs = [r for r in _jobs.values() if not wf_id or r.get("wf") == wf_id]
+        if not recs:
+            return None
+        rec = dict(max(recs, key=lambda r: r.get("started") or 0))
+    end = rec.get("finished") or time.time()
+    rec["elapsed"] = max(0, int(end - (rec.get("started") or end)))
+    return rec
+
+
+def job_mark(pid, status, error=""):
+    with _jobs_lock:
+        rec = _jobs.get(pid)
+        if rec and rec.get("status") == "running":
+            rec["status"] = status
+            rec["error"] = error
+            rec["finished"] = time.time()
+            _save_jobs_locked()
+
+
+def _normalize_files(outputs):
+    files = []
+    for o in (outputs or {}).values():
+        if not isinstance(o, dict):
+            continue
+        for key in ("images", "gifs", "videos"):
+            for f in o.get(key) or []:
+                if isinstance(f, dict) and f.get("filename"):
+                    files.append({
+                        "filename": f["filename"],
+                        "subfolder": f.get("subfolder", ""),
+                        "type": f.get("type", "output"),
+                    })
+    return files
+
+
+def _job_probe(rec):
+    """查一次任务状态，返回 (status, files, error)；None 表示还在跑/查不到。"""
+    pid = rec["pid"]
+    try:
+        h = comfy_get(f"/history/{urllib.parse.quote(pid)}")
+    except Exception:
+        return None
+    job = (h or {}).get(pid)
+    if job:
+        files = _normalize_files(job.get("outputs"))
+        st = job.get("status") or {}
+        if files:
+            return ("done", files, "")
+        if st.get("status_str") == "error":
+            msg = "执行出错"
+            for m in st.get("messages") or []:
+                if isinstance(m, list) and m and m[0] == "execution_error":
+                    msg = (m[1] or {}).get("exception_message") or msg
+                    break
+            return ("error", [], str(msg))
+        if st.get("completed"):
+            return ("empty", [], "跑完了，但没有可预览的输出")
+        return None
+
+    try:
+        q = comfy_get("/queue")
+        running = [x[1] for x in (q.get("queue_running") or []) if len(x) > 1]
+        pending = [x[1] for x in (q.get("queue_pending") or []) if len(x) > 1]
+        if pid in running or pid in pending:
+            return None
+    except Exception:
+        return None
+
+    # history 和队列都没有：可能是 ComfyUI 重启过，历史被清掉了
+    if time.time() - (rec.get("started") or 0) > 30:
+        return ("lost", [], "任务在 ComfyUI 里已经找不到了（可能重启过），去电脑端 output 目录看看")
+    return None
+
+
+def _watch_loop():
+    while True:
+        try:
+            with _jobs_lock:
+                pending = [dict(r) for r in _jobs.values() if r.get("status") == "running"]
+            for rec in pending:
+                res = _job_probe(rec)
+                if not res:
+                    continue
+                status, files, err = res
+                with _jobs_lock:
+                    cur = _jobs.get(rec.get("pid") or "")
+                    if not cur or cur.get("status") != "running":
+                        continue
+                    cur["status"] = status
+                    cur["files"] = files
+                    cur["error"] = err
+                    cur["finished"] = time.time()
+                    _save_jobs_locked()
+                if VERBOSE:
+                    print(f"[job] {(rec.get('pid') or '')[:8]} -> {status}")
+        except Exception:
+            pass
+        time.sleep(5)
+
+
+def ensure_watcher():
+    global _watcher_started
+    with _jobs_lock:
+        if _watcher_started:
+            return
+        _watcher_started = True
+    threading.Thread(target=_watch_loop, daemon=True).start()
+
+
+
 def wf_path(wf_id):
     """把前端传来的 id 解析成 api_workflows 下的真实文件，杜绝目录穿越。"""
     raw = urllib.parse.unquote(str(wf_id or "")).strip()
@@ -899,6 +1075,9 @@ def upload_image(raw, filename):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # 空闲连接自己超时回收，否则线程会一直阻塞在 readline，
+    # 手机把连接 RST 掉时会抛 ConnectionResetError（见 handle_error）
+    timeout = 65
 
     def log_message(self, fmt, *args):
         if VERBOSE:
@@ -1013,6 +1192,12 @@ word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</styl
             if u.path == "/api/queue":
                 # 手机端用它算排队位置和当前在跑的任务
                 return self._send(200, comfy_get("/queue"))
+            if u.path == "/api/last":
+                # 手机随时来问「这个工作流最近一次跑成什么样了」
+                wid = q.get("id", [""])[0]
+                if wid:
+                    wid = wf_path(urllib.parse.unquote(wid)).name
+                return self._send(200, {"job": job_latest(wid or None)})
             if u.path == "/api/view":
                 fn = q.get("filename", [""])[0]
                 if not fn:
@@ -1021,10 +1206,27 @@ word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</styl
                 url = f"{COMFY}/view?" + urllib.parse.urlencode(
                     {"filename": fn, "subfolder": sub, "type": q.get("type", ["output"])[0]}
                 )
-                with _opener.open(url, timeout=120) as r:
-                    data = r.read()
+                rng = self.headers.get("Range")
+                req = urllib.request.Request(url, headers={"Range": rng} if rng else {})
+                with _opener.open(req, timeout=120) as r:
                     ct = r.headers.get("Content-Type") or mimetypes.guess_type(fn)[0] or "image/png"
-                return self._send(200, data, ct)
+                    self.send_response(getattr(r, "status", 200))
+                    self.send_header("Content-Type", ct)
+                    for hk in ("Content-Length", "Content-Range"):
+                        hv = r.headers.get(hk)
+                        if hv:
+                            self.send_header(hk, hv)
+                    self.send_header("Accept-Ranges", r.headers.get("Accept-Ranges") or "bytes")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    # 流式转发，不把整张图/整段视频读进内存
+                    while True:
+                        chunk = r.read(64 * 1024)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                return
             if u.path == "/api/health":
                 return self._send(200, comfy_get("/system_stats"))
             return self._err(404, "not found")
@@ -1110,6 +1312,10 @@ word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</styl
                         return self._err(400, "图片还没上传成功")
                 prompt = build_prompt(wid, values)
                 res = comfy_post("/prompt", {"prompt": prompt, "client_id": uuid.uuid4().hex})
+                pid = res.get("prompt_id")
+                if pid:
+                    detail = workflow_detail(wid)
+                    job_start(detail["id"], detail.get("title"), pid)
                 return self._send(200, res)
             if u.path == "/api/mask":
                 body = self._json_body(raw)
@@ -1123,7 +1329,12 @@ word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</styl
                 fname = self.headers.get("X-Filename") or "upload.png"
                 return self._send(200, upload_image(raw, fname))
             if u.path == "/api/interrupt":
-                return self._send(200, comfy_post("/interrupt", {}))
+                body = self._json_body(raw)
+                res = comfy_post("/interrupt", {})
+                pid = str(body.get("pid") or "").strip()
+                if pid:
+                    job_mark(pid, "stopped", "已手动中断")
+                return self._send(200, res)
             return self._err(404, "not found")
         except ApiError as e:
             return self._err(e.code, e.msg)
@@ -1144,11 +1355,22 @@ class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        """客户端锁屏/切后台/关页面会直接 RST 连接，这类断连是正常的，不打 traceback。"""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            if VERBOSE:
+                print(f"[conn] {client_address[0]} 断开了连接（{exc.__class__.__name__}）")
+            return
+        super().handle_error(request, client_address)
+
 
 if __name__ == "__main__":
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     API_DIR.mkdir(parents=True, exist_ok=True)
     _load_info_cache()
+    _load_jobs()          # 上次没跟完的任务，重启后接着盯
+    ensure_watcher()
     try:
         srv = Server((BIND, PORT), Handler)
     except OSError as e:
