@@ -662,6 +662,7 @@ def admin_detail(wf_id):
                 "key": k,
                 "label": labels.get(k) or it["label"],
                 "kind": it["kind"],
+                "group": it.get("group") or "",
                 "value": defaults.get(k, it["value"]),
                 "selected": k in selected,
                 "multi": bool(it.get("multiline")),

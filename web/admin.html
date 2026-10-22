@@ -551,15 +551,25 @@ $('#previewBtn').onclick = () => {
   if(!curId){ toast('先选一个工作流'); return; }
   const sel = curFields.filter(f => f.selected);
   const title = $('#fTitle').value || curMeta.title || '工作流';
-  const cat = $('#fCat').value || '未分类';
-  const order = { prompt: 0, image: 1, size: 2, seed: 3 };
-  const groups = [
-    ['提示词', sel.filter(f => /提示词|prompt/i.test(f.label))],
-    ['参考素材', sel.filter(f => ['image','video'].includes(f.kind))],
-    ['画面与种子', sel.filter(f => /比例|宽|高|像素|种子|张数|aspect|megapixel|seed/i.test(f.label) && f.kind !== 'image')],
+
+  // 和手机端同一套分区规则，并按管理页里的排序决定分区先后
+  const grp = f => f.group || (
+    ['image','video'].includes(f.kind) ? 'image'
+      : /比例|像素|种子|张数|宽|高/i.test(f.label) ? 'size'
+        : /提示词|prompt/i.test(f.label) ? 'prompt' : 'advanced');
+  const buckets = [
+    { t: '提示词', arr: sel.filter(f => grp(f) === 'prompt') },
+    { t: '参考素材', arr: sel.filter(f => grp(f) === 'image') },
+    { t: '画面与种子', arr: sel.filter(f => grp(f) === 'size' || grp(f) === 'seed') },
   ];
-  const used = new Set([].concat(...groups.map(g => g[1])));
-  groups.push(['其他参数', sel.filter(f => !used.has(f))]);
+  const used = new Set([].concat(...buckets.map(b => b.arr)));
+  buckets.push({ t: '其他参数', arr: sel.filter(f => !used.has(f)) });
+
+  const order = new Map(sel.map((f, i) => [f.key, i]));
+  const at = arr => arr.reduce((m, f) => Math.min(m, order.has(f.key) ? order.get(f.key) : 1e9), 1e9);
+  buckets.sort((a, b) => at(a.arr) - at(b.arr));
+
+  const groups = buckets.map(b => [b.t, b.arr]);
 
   let body = `<div style="padding:6px 4px 12px;font-size:15px;font-weight:600">${esc(title)}</div>`;
   for(const [name, arr] of groups){

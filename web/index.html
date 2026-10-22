@@ -536,32 +536,42 @@ function section(title, bodyHtml, action){
 function renderForm(){
   const d = state.cur;
   const P = d.params.primary, A = d.params.advanced;
-  const prompts = P.filter(p => p.group === 'prompt' && p.kind === 'text');
+  const promptFields = P.filter(p => p.group === 'prompt');
+  const prompts = promptFields.filter(p => p.kind === 'text');
   const images = P.filter(p => p.kind === 'image' || p.kind === 'video');
   const sizes = P.filter(p => (p.group === 'size' || p.group === 'seed') && !images.includes(p));
-  const used = new Set([...prompts, ...images, ...sizes]);
-  const others = P.filter(p => !used.has(p));
+  const used = new Set([...promptFields, ...images, ...sizes]);
+  const rest = P.filter(p => !used.has(p));
 
-  let h = '';
+  // 分区顺序跟着管理页里排的顺序走：哪一块的第一个字段排得最靠前，哪一块就放最上面
+  const posOf = new Map(P.map((p, i) => [p.key, i]));
+  const firstAt = arr => arr.reduce((m, p) => {
+    const at = posOf.has(p.key) ? posOf.get(p.key) : 1e9;
+    return Math.min(m, at);
+  }, 1e9);
 
-  if(prompts.length || others.some(p => p.group === 'prompt')){
-    const onlyOne = prompts.length === 1 && !others.some(p => p.group === 'prompt');
-    const body = prompts.map(p => fldHtml(p, onlyOne)).join('') +
-      others.filter(p => p.group === 'prompt').map(p => fldHtml(p)).join('');
-    const changed = prompts.some(p => String(state.values[p.key]||'') !== String(p.value||''));
-    h += section('提示词', body,
+  const blocks = [];
+  if(promptFields.length){
+    const onlyOne = promptFields.length === 1;
+    const body = promptFields.map(p => fldHtml(p, onlyOne && p.kind === 'text')).join('');
+    const changed = prompts.some(p => String(state.values[p.key] || '') !== String(p.value || ''));
+    blocks.push({ at: firstAt(promptFields), html: section('提示词', body,
       changed ? '<button class="act" data-act="clearprompt" type="button">清空</button>'
-              : '<button class="act" data-act="copyprompt" type="button">复制</button>');
+              : '<button class="act" data-act="copyprompt" type="button">复制</button>') });
   }
-
-  if(images.length) h += section('参考素材', images.map(p => fldHtml(p)).join(''));
-
+  if(images.length){
+    blocks.push({ at: firstAt(images), html: section('参考素材', images.map(p => fldHtml(p)).join('')) });
+  }
   if(sizes.length){
-    h += section('画面与种子', sizes.map(p => isRatioField(p) ? ratioGrid(p) : fldHtml(p)).join(''));
+    blocks.push({ at: firstAt(sizes), html: section('画面与种子',
+      sizes.map(p => isRatioField(p) ? ratioGrid(p) : fldHtml(p)).join('')) });
   }
+  if(rest.length){
+    blocks.push({ at: firstAt(rest), html: section('其他参数', rest.map(p => fldHtml(p)).join('')) });
+  }
+  blocks.sort((a, b) => a.at - b.at);
 
-  const rest = others.filter(p => p.group !== 'prompt');
-  if(rest.length) h += section('其他参数', rest.map(p => fldHtml(p)).join(''));
+  let h = blocks.map(b => b.html).join('');
 
   if(A.length){
     h += `<details class="adv glass" ${A.length <= 6 ? 'open' : ''}>
