@@ -366,26 +366,57 @@ async function showList(){
   try{
     const d = await api('/api/workflows');
     state.list = d.items;
-    renderList();
+    renderList('');
   }catch(e){
     app.innerHTML = `<div class="empty">连不上控制台服务<br><span style="color:#FF9B9B">${esc(e.message)}</span></div>`;
   }
 }
 
+let searchComposing = false;
+
 function renderList(filter){
+  // 搜索框只在第一次渲染时创建，之后只换下面的列表——
+  // 每次输入都重建 <input> 会打断中文输入法的拼写（composition），导致打不出汉字
+  if(!$('#q')){
+    app.innerHTML = `<div class="search glass">
+      <svg class="ic" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M11 11l3.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <input id="q" type="text" placeholder="搜索工作流或分类" autocomplete="off"
+        autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" />
+      <button class="clr" id="qc" style="display:none">✕</button></div>
+      <div id="listbody"></div>`;
+    const inp = $('#q');
+    const syncClear = () => { $('#qc').style.display = inp.value.trim() ? 'block' : 'none'; };
+    inp.addEventListener('compositionstart', () => { searchComposing = true; });
+    inp.addEventListener('compositionend', () => {
+      searchComposing = false; syncClear(); renderListBody(inp.value);
+    });
+    inp.addEventListener('input', () => {
+      if(searchComposing) return;          // 拼音还没上屏，先别动列表
+      syncClear();
+      renderListBody(inp.value);
+    });
+    $('#qc').onclick = () => {
+      inp.value = ''; $('#qc').style.display = 'none';
+      renderListBody(''); inp.focus();
+    };
+  }
+
+  const inp = $('#q');
+  if(filter !== undefined && inp.value !== filter) inp.value = filter;
+  $('#qc').style.display = inp.value.trim() ? 'block' : 'none';
+  renderListBody(inp.value);
+}
+
+function renderListBody(filter){
   const all = state.list;
   const q = (filter || '').trim().toLowerCase();
   const hit = q ? all.filter(it => (it.name + ' ' + it.category).toLowerCase().includes(q)) : all;
   const recents = recentList().filter(r => all.some(a => a.id === r.id));
 
-  let h = `<div class="search glass">
-    <svg class="ic" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M11 11l3.4 3.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-    </svg>
-    <input id="q" type="text" placeholder="搜索工作流或分类" value="${esc(filter || '')}" />
-    <button class="clr" id="qc" style="display:${q ? 'block' : 'none'}">✕</button></div>`;
-
+  let h = '';
   if(!q && recents.length){
     h += `<div class="gh"><span>最近使用</span><span class="line"></span>
       <button class="act" id="recClear" type="button">清除</button></div>
@@ -411,22 +442,12 @@ function renderList(filter){
       }
     }
   }
-  app.innerHTML = h;
 
-  const inp = $('#q');
-  if(inp){
-    inp.oninput = () => {
-      const v = inp.value, pos = v.length;
-      renderList(v);
-      const ni = $('#q');
-      if(ni){ ni.focus(); try{ ni.setSelectionRange(pos, pos); }catch(e){} }
-    };
-  }
-  const clr = $('#qc');
-  if(clr) clr.onclick = () => renderList('');
+  const body = $('#listbody');
+  body.innerHTML = h;
   const rc = $('#recClear');
-  if(rc) rc.onclick = () => { LS.set('recent', []); renderList(); toast('已清除最近使用'); };
-  app.querySelectorAll('[data-open]').forEach(el => {
+  if(rc) rc.onclick = () => { LS.set('recent', []); renderListBody($('#q').value); toast('已清除最近使用'); };
+  body.querySelectorAll('[data-open]').forEach(el => {
     el.onclick = () => openWorkflow(el.dataset.open);
   });
 }
