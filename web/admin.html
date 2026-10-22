@@ -97,7 +97,10 @@
         <button class="btn ghost" id="impBtn">导入 JSON</button>
       </div>
       <input type="file" id="impFile" accept=".json,application/json" multiple hidden>
-      <div class="hint">导入 ComfyUI 导出的 <b>API 格式</b> 工作流</div>
+      <div class="row">
+        <button class="btn ghost" id="refreshBtn" style="flex:1">刷新节点信息</button>
+      </div>
+      <div class="hint" id="refHint">导入 ComfyUI 导出的 <b>API 格式</b> 工作流；装了新模型 / LoRA 后点「刷新节点信息」</div>
     </div>
     <div id="list"><div class="empty">加载中…</div></div>
   </aside>
@@ -378,6 +381,26 @@ async function save(){
 }
 
 $('#impBtn').onclick = ()=> $('#impFile').click();
+
+$('#refreshBtn').onclick = async ()=>{
+  const btn = $('#refreshBtn');
+  const hint = $('#refHint');
+  btn.disabled = true;
+  hint.innerHTML = '刷新中…';
+  try{
+    const d = await api('/api/admin/refresh-info', { method:'POST' });
+    hint.innerHTML = d.comfy
+      ? '节点信息已刷新，重新点开工作流就能看到最新模型列表'
+      : '缓存已清空，但连不上 ComfyUI：先把 ComfyUI 开起来再刷新一次';
+    hint.style.color = d.comfy ? 'var(--ok)' : 'var(--warn)';
+    if(curId) openItem(curId);
+  }catch(e){
+    hint.textContent = e.message;
+    hint.style.color = '#ff8a8a';
+  }finally{
+    btn.disabled = false;
+  }
+};
 $('#impFile').onchange = async e=>{
   const files = [...e.target.files];
   if(!files.length) return;
@@ -405,9 +428,10 @@ async function loadInfo(){
     const a = d.addresses || {};
     const ts = (a.tailscale || [])[0];
     const lan = (a.lan || [])[0];
-    const best = ts ? `http://${ts}:${d.port}` : (lan ? `http://${lan}:${d.port}` : '');
+    let best = ts ? `http://${ts}:${d.port}` : (lan ? `http://${lan}:${d.port}` : '');
+    if(best && d.token) best += '/?t=' + d.token;
     $('#addr').textContent = best || location.host;
-    if(best) $('#addr').title = ts ? 'Tailscale 地址（走外网用这个）' : '局域网地址';
+    if(best) $('#addr').title = (ts ? 'Tailscale 地址（走外网用这个）' : '局域网地址') + '，手机用这个完整地址打开一次';
   }catch(e){
     $('#addr').textContent = location.host;
   }

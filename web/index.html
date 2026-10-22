@@ -11,6 +11,7 @@
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   :root{
     --bg:#0b0b0e; --card:#17171c; --card2:#1e1e25; --line:#2a2a33;
+    --panel:#101014; --panel2:#22222b;
     --text:#f2f2f7; --muted:#8a8a95; --accent:#6d8cff; --ok:#3ecf8e; --warn:#ffb44d;
   }
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -49,7 +50,7 @@
   .row>*{flex:1;min-width:0}
   .pick{border:1px dashed var(--line);border-radius:12px;padding:14px;text-align:center;
     color:var(--muted);font-size:14px;background:var(--card);position:relative;overflow:hidden}
-  .pick img{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px;
+  .pick img,.pick video{max-width:100%;max-height:140px;border-radius:8px;display:block;margin:0 auto 8px;
     background:#fff}
   .pick input{position:absolute;inset:0;opacity:0;font-size:0}
   .pick .maskbtn{position:relative;z-index:2;margin-top:4px;padding:6px 16px;border-radius:8px;
@@ -224,13 +225,12 @@ async function openWorkflow(id){
   app.innerHTML = '<div class="empty">读取工作流参数…</div>';
   try{
     const d = await api('/api/workflow/' + encodeURIComponent(id));
-    state.cur = d; state.values = {};
-    const name = id.split('/').pop().replace('.api.json','');
-    $('#title').textContent = name;
+    state.cur = d; state.values = {}; state.maskSrc = {};
+    $('#title').textContent = d.title || id.split('/').pop().replace('.api.json','');
     $('#back').style.display = 'block';
     renderForm();
     location.hash = 'wf';
-    localStorage.setItem('lastWf', id);
+    localStorage.setItem('lastWf', d.id || id);
   } catch(e){
     app.innerHTML = `<div class="err">${esc(e.message)}</div>`;
   }
@@ -239,10 +239,12 @@ async function openWorkflow(id){
 function fieldHtml(p){
   const k = esc(p.key);
   let inner = '';
-  if(p.kind === 'image'){
+  if(p.kind === 'image' || p.kind === 'video'){
+    const isVid = p.kind === 'video';
+    const acc = p.accept || (isVid ? 'video/*' : 'image/*');
     inner = `<div class="pick" data-pick="${k}">
-        <div class="ph">点击选择图片</div>
-        <input type="file" accept="image/*" data-img="${k}">
+        <div class="ph">点击选择${isVid ? '视频' : '图片'}</div>
+        <input type="file" accept="${acc}" data-img="${k}" data-kind="${p.kind}">
       </div>`;
   } else if(p.kind === 'select'){
     const opts = (p.choices||[]).map(c => `<option value="${esc(c)}"${String(c)===String(p.value)?' selected':''}>${esc(c)}</option>`).join('');
@@ -294,6 +296,7 @@ function renderForm(){
     inp.addEventListener('change', async ()=>{
       const f = inp.files[0]; if(!f) return;
       const k = inp.dataset.img;
+      const kind = inp.dataset.kind || 'image';
       const box = app.querySelector(`[data-pick="${k}"]`);
       const ph = box.querySelector('.ph');
       if(ph) ph.textContent = '上传中…';
@@ -306,16 +309,27 @@ function renderForm(){
         state.values[k] = d.name;
         state.maskSrc = state.maskSrc || {};
         state.maskSrc[k] = d.name;
-        ensureMaskBtn(box, k);
-        let img = box.querySelector('img.preview');
-        if(!img){
-          img = document.createElement('img');
-          img.className = 'preview';
-          box.insertBefore(img, box.firstChild);
+        if(kind === 'video'){
+          let vid = box.querySelector('video.preview');
+          if(!vid){
+            vid = document.createElement('video');
+            vid.className = 'preview';
+            vid.controls = true; vid.muted = true; vid.playsInline = true;
+            box.insertBefore(vid, box.firstChild);
+          }
+          vid.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
+        }else{
+          ensureMaskBtn(box, k);
+          let img = box.querySelector('img.preview');
+          if(!img){
+            img = document.createElement('img');
+            img.className = 'preview';
+            box.insertBefore(img, box.firstChild);
+          }
+          img.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
         }
-        img.src = `/api/view?filename=${encodeURIComponent(d.name)}&type=input&t=${Date.now()}`;
-        if(ph) ph.textContent = '点击可更换图片';
-        toast('图片已上传');
+        if(ph) ph.textContent = '点击可更换';
+        toast(kind === 'video' ? '视频已上传' : '图片已上传');
       }catch(e){
         if(ph) ph.textContent = '上传失败，点击重试';
         toast(e.message);
@@ -401,9 +415,12 @@ function openMaskEditor(key){
   const img = new Image();
   img.onload = ()=>{
     meImg = img;
+    // 手机内存有限，4000px 的原图直接开 canvas 会崩；编辑时限制长边，服务端会再放大回原尺寸
+    const MAX = 2048;
+    const sc = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
     const c = $('#meCanvas');
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
+    c.width = Math.max(1, Math.round(img.naturalWidth * sc));
+    c.height = Math.max(1, Math.round(img.naturalHeight * sc));
     meMask.width = c.width;
     meMask.height = c.height;
     $('#meImg').src = img.src;
@@ -415,7 +432,7 @@ function openMaskEditor(key){
 
 function finishMask(){
   if(!meImg || !meStrokes.length){ toast('还没有涂抹'); return; }
-  const w = meImg.naturalWidth, h = meImg.naturalHeight;
+  const w = meMask.width, h = meMask.height;
 
   // 1) 生成黑白遮罩图（全不透明，避免浏览器把透明像素的 RGB 清零）
   const tmp = document.createElement('canvas');
@@ -585,9 +602,10 @@ function setupMaskEditor(){
 
 async function run(){
   const btn = $('#run');
-  const miss = (state.cur.params.primary || []).filter(p => p.kind === 'image' && !state.values[p.key]);
+  const miss = (state.cur.params.primary || []).filter(p =>
+    (p.kind === 'image' || p.kind === 'video') && !state.values[p.key]);
   if(miss.length){
-    toast(miss.length > 1 ? '还有参考图没选' : '请先选一张图片');
+    toast(miss.length > 1 ? '还有素材没选' : (miss[0].kind === 'video' ? '请先选一个视频' : '请先选一张图片'));
     return;
   }
   btn.disabled = true; btn.textContent = '提交中…';
@@ -621,16 +639,30 @@ function setStat(text, on){
 function poll(pid){
   stopPoll();
   const t0 = Date.now();
+  const LIMIT = 5 * 60 * 1000;   // 超过 5 分钟就不再傻等
   const out = $('#out');
   const btn = $('#run');
+  let errs = 0;
   btn.disabled = true; btn.textContent = '运行中…';
   out.innerHTML = '';
   setStat('已提交，准备中…', true);
 
+  const giveUp = (title, detail)=>{
+    stopPoll();
+    btn.disabled = false; btn.textContent = '重新运行';
+    setStat(title, true);
+    out.innerHTML = `<div class="err">${esc(detail)}</div>`;
+  };
+
   const tick = async ()=>{
     const sec = Math.round((Date.now()-t0)/1000);
+    if(Date.now() - t0 > LIMIT){
+      giveUp('等待超时', '等了 5 分钟还没拿到结果。\n可能还在排队，也可能任务已经失败了。\n去电脑端的 ComfyUI 窗口看一眼日志，或点「重新运行」。');
+      return;
+    }
     try{
       const h = await api('/api/job?id=' + encodeURIComponent(pid));
+      errs = 0;
       const job = h[pid];
       if(job && job.outputs && Object.keys(job.outputs).length){
         stopPoll();
@@ -641,13 +673,23 @@ function poll(pid){
       }
       const st = job && job.status;
       if(st && st.status_str === 'error'){
-        stopPoll(); btn.disabled = false; btn.textContent = '重新运行';
-        setStat('执行出错', true);
-        out.innerHTML = `<div class="err">执行出错，去电脑端的 ComfyUI 窗口看日志</div>`;
+        giveUp('执行出错', '执行出错，去电脑端的 ComfyUI 窗口看日志');
+        return;
+      }
+      if(st && st.completed){
+        stopPoll();
+        btn.disabled = false; btn.textContent = '再跑一次';
+        setStat(`完成 · 用时 ${sec}s`, true);
+        out.innerHTML = '<div class="stat">完成，但这个工作流没有可预览的输出节点</div>';
         return;
       }
       setStat(st && st.status_str === 'running' ? `生成中 ${sec}s` : `排队中 ${sec}s`, true);
     }catch(e){
+      errs++;
+      if(errs >= 8){
+        giveUp('连接中断', '连续好几次没连上控制台服务：' + e.message + '\n检查电脑上的服务窗口是否还在运行。');
+        return;
+      }
       setStat(`等待中 ${sec}s`, true);
     }
   };

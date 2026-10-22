@@ -9,9 +9,9 @@ import json
 import mimetypes
 import pathlib
 import random
-import shutil
+import re
+import secrets
 import socket
-import socketserver
 import sys
 import threading
 import time
@@ -30,7 +30,11 @@ except ImportError:
     Image = None
     HAS_PIL = False
 
-sys.stdout.reconfigure(encoding="utf-8")
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 if getattr(sys, "frozen", False):
     # 打包成 exe 后：数据放 exe 旁边，静态资源在解包目录里
@@ -49,6 +53,9 @@ DEFAULT_CONFIG = {
     "port": 8899,
     "bind": "0.0.0.0",
     "open_admin": True,
+    # 访问令牌：null = 首次运行自动生成；"" = 关闭鉴权（只在自己完全信任的网络里这么干）
+    "token": None,
+    "verbose": False,
 }
 
 
@@ -72,10 +79,26 @@ def load_config():
     return cfg
 
 
+def save_config(cfg):
+    try:
+        CONFIG_FILE.write_text(
+            json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"[警告] config.json 写入失败：{e}")
+
+
 CFG = load_config()
 COMFY = str(CFG["comfy_url"]).rstrip("/")
 PORT = int(CFG["port"])
 BIND = str(CFG.get("bind") or "0.0.0.0")
+
+# 首次运行（或旧版配置没有 token 字段）时生成一个随机令牌并写回配置
+if CFG.get("token") is None:
+    CFG["token"] = secrets.token_urlsafe(9)
+    save_config(CFG)
+TOKEN = str(CFG.get("token") or "").strip()
+VERBOSE = bool(CFG.get("verbose"))
 
 # 直连 ComfyUI，绕开系统代理（Clash 等会把 127.0.0.1 也劫持成 502）
 _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -84,12 +107,41 @@ _cache = {}
 _cache_lock = threading.Lock()
 _info_cache = {}
 
-TEXT_KEYS = {"text", "prompt", "string", "text_g", "text_l", "positive", "negative"}
-NUM_KEYS = {
-    "seed", "noise_seed", "steps", "cfg", "width", "height", "batch_size",
-    "denoise", "strength", "scale_by", "megapixels", "length", "fps", "frame_count",
-}
 SKIP_CLASS = {"Note", "MarkdownNote", "Reroute", "PrimitiveNode"}
+
+MAX_UPLOAD = 64 * 1024 * 1024  # 单次上传上限，防止被塞爆内存
+IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"}
+VIDEO_EXT = {"mp4", "webm", "mov", "mkv", "avi"}
+MEDIA_EXT = IMAGE_EXT | VIDEO_EXT
+SAFE_NAME_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff._\-()\[\] ]+")
+IMAGE_KEYS = {
+    "image", "img", "input_image", "source_image", "ref_image",
+    "reference_image", "image_a", "image_b", "face_image", "mask_image",
+}
+
+
+class ApiError(Exception):
+    """带 HTTP 状态码的业务错误，直接把信息回给前端。"""
+
+    def __init__(self, code, msg):
+        super().__init__(msg)
+        self.code = code
+        self.msg = msg
+
+
+def safe_filename(name, default="upload.png"):
+    """只保留文件名本身，去掉路径，过滤掉奇怪字符与不允许的扩展名。"""
+    raw = urllib.parse.unquote(str(name or ""))
+    base = pathlib.PurePath(raw.replace("\\", "/")).name
+    base = SAFE_NAME_RE.sub("_", base).strip(" .")
+    if not base:
+        base = default
+    if "." not in base:
+        base += pathlib.PurePath(default).suffix or ".png"
+    stem, _, ext = base.rpartition(".")
+    if ext.lower() not in MEDIA_EXT:
+        return f"{stem or 'upload'}.png"
+    return base
 
 
 def local_addresses():
@@ -135,12 +187,21 @@ def compose_mask(base_name, mask_name):
     if not HAS_PIL:
         raise ValueError("服务端缺少 Pillow，无法合成遮罩（pip install pillow）")
     q = urllib.parse.quote
-    base = Image.open(
-        BytesIO(comfy_bytes(f"/view?filename={q(base_name)}&type=input"))
-    ).convert("RGB")
-    mask = Image.open(
-        BytesIO(comfy_bytes(f"/view?filename={q(mask_name)}&type=input"))
-    ).convert("L")
+    try:
+        base = Image.open(
+            BytesIO(comfy_bytes(f"/view?filename={q(base_name)}&type=input"))
+        ).convert("RGB")
+        mask = Image.open(
+            BytesIO(comfy_bytes(f"/view?filename={q(mask_name)}&type=input"))
+        ).convert("L")
+    except urllib.error.HTTPError as e:
+        raise ApiError(400, f"合成遮罩失败：ComfyUI 的 input 目录里找不到原图或遮罩（HTTP {e.code}）")
+    except urllib.error.URLError as e:
+        raise ApiError(502, f"合成遮罩失败：连不上 ComfyUI（{e.reason}）")
+    except ApiError:
+        raise
+    except Exception as e:
+        raise ApiError(400, f"合成遮罩失败：{e}")
     if mask.size != base.size:
         mask = mask.resize(base.size, Image.LANCZOS)
 
@@ -161,7 +222,9 @@ def comfy_post(path, payload):
         COMFY + path, data=data, headers={"Content-Type": "application/json"}
     )
     with _opener.open(req, timeout=60) as r:
-        return json.loads(r.read().decode("utf-8"))
+        body = r.read().decode("utf-8", "ignore").strip()
+    # /interrupt 这类接口成功时返回空响应，不能直接当 JSON 解析
+    return json.loads(body) if body else {}
 
 
 INFO_CACHE_FILE = ROOT / ".cache" / "object_info.json"
@@ -225,10 +288,36 @@ def object_info(class_type):
     return info
 
 
+def refresh_info_cache():
+    """清空节点信息缓存并重新探测。
+
+    ComfyUI 里新装了模型/LoRA、或者重启过后，下拉选项要靠这个刷新，
+    否则旧列表会一直用下去（以前只能删 .cache 目录或重启服务）。
+    """
+    with _cache_lock:
+        _info_cache.clear()
+        _failed_types.clear()
+        _cache.clear()
+    _save_info_cache()
+    _comfy_check["ok"] = None
+    _comfy_check["ts"] = 0
+    return {"ok": True, "comfy": comfy_available()}
+
+
 def wf_path(wf_id):
-    p = (API_DIR / urllib.parse.unquote(wf_id)).resolve()
-    if not str(p).startswith(str(API_DIR.resolve())) or not p.exists():
-        raise FileNotFoundError(wf_id)
+    """把前端传来的 id 解析成 api_workflows 下的真实文件，杜绝目录穿越。"""
+    raw = urllib.parse.unquote(str(wf_id or "")).strip()
+    if not raw or raw.startswith(("/", "\\")) or ":" in raw:
+        raise ApiError(404, "工作流不存在")
+    base = API_DIR.resolve()
+    try:
+        p = (base / raw).resolve()
+    except (OSError, ValueError):
+        raise ApiError(404, "工作流不存在")
+    if not p.is_relative_to(base) or p == base or not p.is_file():
+        raise ApiError(404, "工作流不存在")
+    if not p.name.endswith(".api.json"):
+        raise ApiError(404, "工作流不存在")
     return p
 
 
@@ -258,6 +347,46 @@ def _renumber(items):
 
 def _is_link(v):
     return isinstance(v, list) and len(v) == 2 and isinstance(v[0], str)
+
+
+def media_kind(key, spec_type, spec_meta, choices, val):
+    """判断一个字段是不是「要传文件」，返回 image / video / None。
+
+    不能只看字段名：ComfyUI 的 LoadImage 把 image 声明成 COMBO（候选是 input 目录里的
+    文件名，带 image_upload 标记），而别的节点可能叫 input_image / image1。
+    所以按「节点声明的上传标记 → 类型 → 候选扩展名 → 字段名」逐级兜底。
+    """
+    if not isinstance(val, str):
+        return None
+    low = key.lower()
+    if spec_meta.get("video_upload"):
+        return "video"
+    if spec_meta.get("image_upload"):
+        return "image"
+    if spec_type == "IMAGE":
+        return "image"
+    if spec_type == "VIDEO":
+        return "video"
+    if spec_type == "MASK":
+        return None
+
+    if choices:
+        exts = {
+            str(c).rsplit(".", 1)[-1].lower()
+            for c in choices
+            if isinstance(c, str) and "." in str(c)
+        }
+        if exts:
+            hit = exts & MEDIA_EXT
+            # 候选里绝大多数是图片/视频扩展名，才当成上传位（.safetensors 那类不能误判）
+            if hit and len(hit) * 2 >= len(exts):
+                return "video" if len(hit & VIDEO_EXT) > len(hit & IMAGE_EXT) else "image"
+            return None
+
+    if spec_type is None or spec_type == "COMBO":
+        if low in IMAGE_KEYS or re.fullmatch(r"(image|img|input_image|source_image)[ _-]?\d*", low):
+            return "image"
+    return None
 
 
 def extract_params(prompt):
@@ -310,8 +439,9 @@ def extract_params(prompt):
                     choices = [c for c in choices if isinstance(c, (str, int, float))]
 
             kind = None
-            if key == "image" and isinstance(val, str):
-                kind, val = "image", ""
+            media = media_kind(key, spec_type, spec_meta, choices, val)
+            if media:
+                kind, val = media, ""
             elif choices and len(choices) > 1:
                 kind = "select"
             elif spec_type in ("INT", "FLOAT"):
@@ -347,8 +477,10 @@ def extract_params(prompt):
                 "value": val,
                 "_title": title,
             }
-            if choices and kind != "image":
+            if choices and kind not in ("image", "video"):
                 item["choices"] = choices[:200]
+            if kind in ("image", "video"):
+                item["accept"] = "video/*" if kind == "video" else "image/*"
             if spec_meta.get("multiline"):
                 item["multiline"] = True
 
@@ -362,8 +494,8 @@ def extract_params(prompt):
                 item["label"] = "负面提示词"
                 item["group"] = "negative"
                 advanced.append(item)
-            elif kind == "image":
-                item["label"] = f"{title} · 图片"
+            elif kind in ("image", "video"):
+                item["label"] = f"{title} · {'视频' if kind == 'video' else '图片'}"
                 item["group"] = "image"
                 primary.append(item)
             elif low in ("seed", "noise_seed"):
@@ -388,7 +520,8 @@ def extract_params(prompt):
 
     imgs = [p for p in primary if p["group"] == "image"]
     for i, p in enumerate(imgs):
-        p["label"] = f"参考图 {i + 1}" if len(imgs) > 1 else "参考图"
+        word = "参考视频" if p["kind"] == "video" else "参考图"
+        p["label"] = f"{word} {i + 1}" if len(imgs) > 1 else word
     prompts = [p for p in primary if p["group"] == "prompt"]
     for i, p in enumerate(prompts):
         if i:
@@ -419,6 +552,7 @@ def load_ui_override(p):
 
 def workflow_detail(wf_id):
     p = wf_path(wf_id)
+    wf_id = p.name  # 统一成磁盘上的真实文件名，不回传 URL 编码后的 id
     ui_file = p.with_name(p.name[: -len(".api.json")] + ".ui.json")
     stamp = (
         str(p),
@@ -497,6 +631,10 @@ def write_ui(p, ui):
     ui_path_of(p).write_text(
         json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    # 界面配置变了，旧的详情缓存（按 mtime 做 key）就没意义了，顺手清掉防止越攒越多
+    with _cache_lock:
+        for k in [k for k in _cache if k[0] == str(p)]:
+            _cache.pop(k, None)
     return out
 
 
@@ -547,7 +685,9 @@ def save_ui(wf_id, body):
     labels = {}
     defaults = {}
     for f in picked:
-        k = f["key"]
+        k = f.get("key")
+        if not k:
+            raise ApiError(400, "参数缺少 key 字段，可能是不完整的前端请求")
         if f.get("label"):
             labels[k] = f["label"].strip()
         dv = f.get("default")
@@ -678,6 +818,9 @@ def _rand_seed(spec):
     return random.randint(lo, hi)
 
 
+SEED_KEYS = ("seed", "noise_seed", "rand_seed", "seed_value", "int_seed")
+
+
 def build_prompt(wf_id, values):
     prompt = copy.deepcopy(workflow_detail(wf_id)["prompt"])
     values = values or {}
@@ -685,12 +828,12 @@ def build_prompt(wf_id, values):
     # 种子自动随机：界面上没暴露的 seed 字段每次运行都换新值，避免重复出同一张图
     for nid, node in prompt.items():
         inputs = node.get("inputs") or {}
-        if not any(k in inputs for k in ("seed", "noise_seed")):
+        if not any(k in inputs for k in SEED_KEYS):
             continue
         info = object_info(node.get("class_type", ""))
         req = (info.get("input") or {}).get("required") or {}
         opt = (info.get("input") or {}).get("optional") or {}
-        for key in ("seed", "noise_seed"):
+        for key in SEED_KEYS:
             if key not in inputs:
                 continue
             if f"{nid}.{key}" in values:
@@ -730,6 +873,7 @@ def build_prompt(wf_id, values):
 
 
 def upload_image(raw, filename):
+    filename = safe_filename(filename)
     boundary = "----comfy" + uuid.uuid4().hex
     body = b""
     body += f"--{boundary}\r\n".encode()
@@ -750,9 +894,10 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
-        pass
+        if VERBOSE:
+            sys.stderr.write("[%s] %s - %s\n" % (time.strftime("%H:%M:%S"), self.address_string(), fmt % args))
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         elif isinstance(body, str):
@@ -761,42 +906,107 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in extra or ():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
     def _err(self, code, msg):
         self._send(code, {"error": msg})
 
+    def _page(self, filename):
+        f = WEB_DIR / filename
+        if not f.exists():
+            return self._err(500, f"缺少页面文件：{filename}")
+        extra = ()
+        if TOKEN:
+            extra = (("Set-Cookie", f"cctk={TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"),)
+        return self._send(200, f.read_bytes(), "text/html; charset=utf-8", extra)
+
+    def _query_token(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        return (q.get("t", [""])[0] or "").strip()
+
+    def _authorized(self):
+        """本机回环直接放行；其他设备要求 ?t= / X-Token / 之前发过的 Cookie。"""
+        if not TOKEN:
+            return True
+        try:
+            if ipaddress.ip_address(self.client_address[0].replace("::ffff:", "")).is_loopback:
+                return True
+        except ValueError:
+            pass
+        for got in (
+            self.headers.get("X-Token") or "",
+            self._query_token(),
+        ):
+            got = got.strip()
+            if got and secrets.compare_digest(got, TOKEN):
+                return True
+        m = re.search(r"(?:^|;\s*)cctk=([^;]+)", self.headers.get("Cookie") or "")
+        if m:
+            got = urllib.parse.unquote(m.group(1)).strip()
+            if got and secrets.compare_digest(got, TOKEN):
+                return True
+        return False
+
+    def _no_auth_page(self):
+        html = f"""<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>需要访问令牌</title>
+<style>body{{background:#0b0b0e;color:#f2f2f7;font:16px/1.7 -apple-system,"PingFang SC",sans-serif;
+padding:40px 20px;max-width:520px;margin:0 auto}}code{{background:#1e1e25;padding:2px 6px;border-radius:5px;
+word-break:break-all;font-size:13px}}p{{color:#8a8a95}}.y{{color:#ffb44d}}</style></head><body>
+<h2>需要访问令牌</h2>
+<p>这个控制台开了访问令牌保护，直接用这个地址打不开。</p>
+<p>去电脑上看启动时那个黑窗口，用里面显示的<b>「局域网访问」/「外网(Tailscale)」</b>完整地址
+（结尾带 <code>?t=...</code>）打开一次，之后这台设备就不用再输了。</p>
+<p class="y">如果忘了地址，重启一次服务也会重新打印。</p>
+</body></html>"""
+        return self._send(401, html, "text/html; charset=utf-8")
+
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
             if u.path in ("/", "/index.html"):
-                f = WEB_DIR / "index.html"
-                return self._send(200, f.read_bytes(), "text/html; charset=utf-8")
+                if not self._authorized():
+                    return self._no_auth_page()
+                return self._page("index.html")
             if u.path == "/admin":
-                f = WEB_DIR / "admin.html"
-                return self._send(200, f.read_bytes(), "text/html; charset=utf-8")
+                if not self._authorized():
+                    return self._no_auth_page()
+                return self._page("admin.html")
+            if u.path == "/api/info":
+                info = {"addresses": local_addresses(), "comfy": COMFY, "port": PORT}
+                # 只有已授权的请求才回令牌，方便管理页显示「手机该打开哪个地址」
+                if TOKEN and self._authorized():
+                    info["token"] = TOKEN
+                return self._send(200, info)
+            if u.path.startswith("/api/") and not self._authorized():
+                return self._err(401, "需要访问令牌，请用启动窗口里带 ?t= 的地址打开")
+
             if u.path.startswith("/api/admin/"):
                 if not is_admin_client(self.client_address[0]):
-                    return self._err(403, "管理接口只允许在本机访问")
+                    return self._err(403, "管理接口只允许在本机或局域网访问")
                 if u.path == "/api/admin/list":
                     return self._send(200, {"items": list_workflows()})
                 if u.path == "/api/admin/detail":
                     return self._send(200, admin_detail(q.get("id", [""])[0]))
-            if u.path == "/api/info":
-                return self._send(
-                    200, {"addresses": local_addresses(), "comfy": COMFY, "port": PORT}
-                )
+                return self._err(404, "not found")
             if u.path == "/api/workflows":
                 return self._send(200, {"items": list_workflows()})
             if u.path.startswith("/api/workflow/"):
                 return self._send(200, workflow_detail(u.path[len("/api/workflow/"):]))
             if u.path == "/api/job":
                 pid = q.get("id", [""])[0]
-                return self._send(200, comfy_get(f"/history/{pid}"))
+                if not pid:
+                    return self._err(400, "缺少任务 id")
+                return self._send(200, comfy_get(f"/history/{urllib.parse.quote(pid)}"))
             if u.path == "/api/view":
                 fn = q.get("filename", [""])[0]
+                if not fn:
+                    return self._err(400, "缺少 filename")
                 sub = q.get("subfolder", [""])[0]
                 url = f"{COMFY}/view?" + urllib.parse.urlencode(
                     {"filename": fn, "subfolder": sub, "type": q.get("type", ["output"])[0]}
@@ -808,24 +1018,57 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/health":
                 return self._send(200, comfy_get("/system_stats"))
             return self._err(404, "not found")
+        except ApiError as e:
+            return self._err(e.code, e.msg)
+        except urllib.error.URLError as e:
+            return self._err(502, f"连不上 ComfyUI：{e.reason}")
         except Exception as e:
-            return self._err(500, str(e))
+            return self._err(500, f"服务端出错：{e}")
+
+    def _json_body(self, raw):
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except Exception:
+            raise ApiError(400, "请求体不是合法 JSON")
+        if not isinstance(data, dict):
+            raise ApiError(400, "请求体必须是 JSON 对象")
+        return data
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
         try:
-            n = int(self.headers.get("Content-Length") or 0)
+            if not u.path.startswith("/api/"):
+                return self._err(404, "not found")
+            if not self._authorized():
+                self.close_connection = True
+                return self._err(401, "需要访问令牌，请用启动窗口里带 ?t= 的地址打开")
+
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                self.close_connection = True
+                return self._err(400, "Content-Length 不合法")
+            if n < 0 or n > MAX_UPLOAD:
+                self.close_connection = True
+                return self._err(413, f"请求体超过 {MAX_UPLOAD // 1024 // 1024} MB 上限")
             raw = self.rfile.read(n) if n else b""
+
             if u.path.startswith("/api/admin/"):
                 if not is_admin_client(self.client_address[0]):
-                    return self._err(403, "管理接口只允许在本机访问")
-                body = json.loads(raw.decode("utf-8")) if raw else {}
+                    return self._err(403, "管理接口只允许在本机或局域网访问")
+                body = self._json_body(raw)
                 if u.path == "/api/admin/save":
-                    return self._send(200, {"ok": True, "ui": save_ui(body["id"], body)})
+                    wid = body.get("id")
+                    if not wid:
+                        return self._err(400, "缺少工作流 id")
+                    return self._send(200, {"ok": True, "ui": save_ui(wid, body)})
                 if u.path == "/api/admin/reorder":
-                    return self._send(
-                        200, reorder_workflow(body["id"], body.get("dir", "up"))
-                    )
+                    wid = body.get("id")
+                    if not wid:
+                        return self._err(400, "缺少工作流 id")
+                    return self._send(200, reorder_workflow(wid, body.get("dir", "up")))
                 if u.path == "/api/admin/group-move":
                     return self._send(
                         200, move_group(body.get("name", ""), body.get("dir", "up"))
@@ -836,33 +1079,55 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return self._send(200, {"ok": True, "id": wid})
                 if u.path == "/api/admin/delete":
-                    return self._send(200, delete_workflow(body.get("id", "")))
+                    wid = body.get("id")
+                    if not wid:
+                        return self._err(400, "缺少工作流 id")
+                    return self._send(200, delete_workflow(wid))
+                if u.path == "/api/admin/refresh-info":
+                    return self._send(200, refresh_info_cache())
                 return self._err(404, "not found")
+
             if u.path == "/api/run":
-                body = json.loads(raw.decode("utf-8"))
+                body = self._json_body(raw)
+                wid = body.get("id")
+                if not wid:
+                    return self._err(400, "缺少工作流 id")
                 values = body.get("values") or {}
-                for k, v in list(values.items()):
+                if not isinstance(values, dict):
+                    return self._err(400, "values 必须是对象")
+                for v in values.values():
                     if isinstance(v, str) and v.startswith("upload:"):
-                        self._err(400, "图片未上传")
-                        return
-                prompt = build_prompt(body["id"], values)
+                        return self._err(400, "图片还没上传成功")
+                prompt = build_prompt(wid, values)
                 res = comfy_post("/prompt", {"prompt": prompt, "client_id": uuid.uuid4().hex})
                 return self._send(200, res)
             if u.path == "/api/mask":
-                body = json.loads(raw.decode("utf-8")) if raw else {}
-                name = compose_mask(body.get("base", ""), body.get("mask", ""))
-                return self._send(200, {"name": name})
+                body = self._json_body(raw)
+                base, mask = body.get("base"), body.get("mask")
+                if not base or not mask:
+                    return self._err(400, "缺少 base / mask 文件名")
+                return self._send(200, {"name": compose_mask(base, mask)})
             if u.path == "/api/upload":
-                fname = urllib.parse.unquote(self.headers.get("X-Filename") or "upload.png")
+                if not raw:
+                    return self._err(400, "上传内容为空")
+                fname = self.headers.get("X-Filename") or "upload.png"
                 return self._send(200, upload_image(raw, fname))
             if u.path == "/api/interrupt":
                 return self._send(200, comfy_post("/interrupt", {}))
             return self._err(404, "not found")
+        except ApiError as e:
+            return self._err(e.code, e.msg)
+        except ValueError as e:
+            return self._err(400, str(e))
+        except FileNotFoundError:
+            return self._err(404, "工作流不存在")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "ignore")[:600]
-            return self._err(400, f"ComfyUI 拒绝执行: {detail}")
+            return self._err(400, f"ComfyUI 拒绝执行：{detail}")
+        except urllib.error.URLError as e:
+            return self._err(502, f"连不上 ComfyUI：{e.reason}")
         except Exception as e:
-            return self._err(500, str(e))
+            return self._err(500, f"服务端出错：{e}")
 
 
 class Server(ThreadingHTTPServer):
@@ -882,6 +1147,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     addr = local_addresses()
+    tok = f"?t={TOKEN}" if TOKEN else ""
     print("")
     print("  ComfyUI 手机控制台")
     print("  " + "-" * 46)
@@ -889,12 +1155,17 @@ if __name__ == "__main__":
     print(f"  工作流目录   : {API_DIR}")
     print(f"  本机管理页   : http://127.0.0.1:{PORT}/admin")
     for ip in addr["lan"]:
-        print(f"  局域网访问   : http://{ip}:{PORT}/")
+        print(f"  局域网访问   : http://{ip}:{PORT}/{tok}")
     for ip in addr["tailscale"]:
-        print(f"  外网(Tailscale): http://{ip}:{PORT}/")
+        print(f"  外网(Tailscale): http://{ip}:{PORT}/{tok}")
     if not addr["lan"] and not addr["tailscale"]:
         print("  未检测到可用网卡地址，仅本机可访问")
     print("  " + "-" * 46)
+    if TOKEN:
+        print("  手机第一次打开请用上面带 ?t= 的完整地址，之后会自动记住")
+        print("  （不想要令牌：把 config.json 里的 token 改成 \"\"）")
+    else:
+        print("  [注意] 已关闭访问令牌，同一网络内任何设备都能操作本服务")
     print("  关闭本窗口即停止服务")
     print("")
     if CFG.get("open_admin", True):
